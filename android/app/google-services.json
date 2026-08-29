@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "404875148480",
+    "project_id": "plant-identifier-4161d",
+    "storage_bucket": "plant-identifier-4161d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:404875148480:android:bd95fafea74321f0e1c125",
+        "android_client_info": {
+          "package_name": "com.mbxapps.plantidentifier"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "404875148480-k9gh8jqiv1udnr1qnur5f0j3rkdpkkbu.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAUDBfgyws3d9lPAffWsztVRNItuE0Sv6A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "404875148480-k9gh8jqiv1udnr1qnur5f0j3rkdpkkbu.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "404875148480-021a18fo5ej2pg2sahcvt56ekcqtt3h0.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.mbxapps.plantidentifier"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
