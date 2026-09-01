@@ -9,8 +9,13 @@ import 'package:plantidentifier/provider/folder_provider.dart'
 import 'package:plantidentifier/provider/plant_provider.dart';
 import 'package:plantidentifier/provider/reminder_provider.dart';
 import 'package:plantidentifier/provider/plant_history_provider.dart';
+import 'package:plantidentifier/provider/recovery_provider.dart';
+import 'package:plantidentifier/provider/location_provider.dart';
+import 'package:plantidentifier/provider/care_rule_provider.dart';
+import 'package:plantidentifier/provider/grow_plan_provider.dart';
 import 'package:plantidentifier/services/plant_local.dart';
 import 'package:plantidentifier/services/notification_service.dart';
+import 'package:plantidentifier/services/phase3_smoke_seed.dart';
 import 'package:plantidentifier/view/screens/home_screen.dart';
 import 'package:plantidentifier/view/screens/splash_screen.dart';
 import 'package:plantidentifier/mixpanel/mixpanel.dart';
@@ -24,6 +29,7 @@ void main() async {
   await dotenv.load(fileName: '.env');
   await Firebase.initializeApp();
   await LocalStorageService.init();
+  await Phase3SmokeSeed.maybeSeed();
   // Initialize notification service (without requesting permissions)
   await NotificationService.initialize();
   // Initialize Mixpanel
@@ -46,7 +52,11 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => PlantProvider()),
         ChangeNotifierProvider(create: (_) => FolderProvider()),
         ChangeNotifierProvider(create: (_) => ReminderProvider()),
+        ChangeNotifierProvider(create: (_) => RecoveryProvider()),
         ChangeNotifierProvider(create: (_) => PlantHistoryProvider()),
+        ChangeNotifierProvider(create: (_) => LocationProvider()),
+        ChangeNotifierProvider(create: (_) => CareRuleProvider()),
+        ChangeNotifierProvider(create: (_) => GrowPlanProvider()),
       ],
       child: ScreenUtilInit(
         designSize: const Size(375, 812), // iPhone 11 Pro design size

@@ -1,20 +1,13 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../provider/folder_provider.dart';
-import '../../../provider/reminder_provider.dart';
-import '../../../provider/plant_history_provider.dart';
-import '../../../model/data_model/reminder_model.dart';
-import '../../../model/data_model/plant_history_model.dart';
-import '../history/plant_history_screen.dart';
-import '../history/plant_history_detail.dart';
-import '../reminder/plant_reminder_screen.dart';
+import '../../../provider/plant_provider.dart';
+import '../../../navigation/v1_nav.dart';
 import '../scan_screen.dart';
-import 'folder_manager.dart';
+import 'favourite_screens.dart';
 import 'folder_detail_screen.dart';
 import 'tasks_tab_wrapper.dart';
 import 'snap_history_tab_wrapper.dart';
@@ -50,7 +43,7 @@ class _MyGardenScreenState extends State<MyGardenScreen>
         backgroundColor: Colors.white,
         elevation: 0,
         title: Text(
-          'My Garden',
+          V1Nav.plantsLabel,
           style: GoogleFonts.poppins(
             fontSize: 20,
             fontWeight: FontWeight.w600,
@@ -72,7 +65,7 @@ class _MyGardenScreenState extends State<MyGardenScreen>
             fontWeight: FontWeight.w500,
           ),
           tabs: const [
-            Tab(text: 'My Garden'),
+            Tab(text: 'Garden'),
             Tab(text: 'Tasks'),
             Tab(text: 'Scan History'),
           ],
@@ -138,7 +131,8 @@ class MyGardenTab extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            // General Group Card
+            _buildAllPlantsEntry(context),
+            const SizedBox(height: 16),
             // Container(
             //   padding: const EdgeInsets.all(20),
             //   decoration: BoxDecoration(
@@ -271,6 +265,78 @@ class MyGardenTab extends StatelessWidget {
     );
   }
 
+  Widget _buildAllPlantsEntry(BuildContext context) {
+    return Consumer<PlantProvider>(
+      builder: (context, plants, _) {
+        final count = plants.favorites.length;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const FavoritesScreen(),
+                  ),
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4CAF50).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.eco_rounded,
+                        color: Color(0xFF4CAF50),
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'All plants',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF2E7D32),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            count == 0
+                                ? 'Saved plants appear here'
+                                : '$count saved',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildActionIcon(IconData icon, Color color) {
     return Container(
       width: 70,
@@ -293,6 +359,7 @@ class MyGardenTab extends StatelessWidget {
   Widget _buildGardenList(BuildContext context, FolderProvider provider) {
     return Column(
       children: [
+        _buildAllPlantsEntry(context),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(

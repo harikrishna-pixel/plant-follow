@@ -7,20 +7,27 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/gemini_service.dart';
+import '../../../services/picked_media.dart';
+import '../../../model/data_model/plant_model.dart';
+import '../../../model/data_model/recovery_models.dart';
+import '../../../provider/recovery_provider.dart';
+import 'package:provider/provider.dart';
 import '../../../widgets/banner_widget.dart';
 import 'diagnosis_result_screen.dart';
 import '../privacy_and_terms/review.dart';
 import '../../../mixpanel/mixpanel.dart';
 
 class PlantDiagnosisScreen extends StatefulWidget {
-  const PlantDiagnosisScreen({super.key});
+  final Plant? plant;
+
+  const PlantDiagnosisScreen({super.key, this.plant});
 
   @override
   State<PlantDiagnosisScreen> createState() => _PlantDiagnosisScreenState();
 }
 
-class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with TickerProviderStateMixin {
-  final ImagePicker _picker = ImagePicker();
+class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen>
+    with TickerProviderStateMixin {
   bool _isAnalyzing = false;
   XFile? _selectedImage;
 
@@ -118,10 +125,7 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
         return;
       }
 
-      final XFile? image = await _picker.pickImage(
-        source: source,
-        imageQuality: 85,
-      );
+      final XFile? image = await PickedMedia.pickPlantPhoto(source: source);
 
       if (image != null) {
         setState(() {
@@ -139,18 +143,25 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
         await Future.delayed(const Duration(seconds: 2));
 
         // Show Rate Us popup only once for new users
-// In PlantDiagnosisScreen, around line 145-150, update this section:
+        // In PlantDiagnosisScreen, around line 145-150, update this section:
 
-// Show Rate Us popup only once for new users
+        // Show Rate Us popup only once for new users
         final prefs = await SharedPreferences.getInstance();
-        final hasSeenRatePopup = prefs.getBool('has_seen_rate_popup') ?? false; // Changed key name
+        final hasSeenRatePopup =
+            prefs.getBool('has_seen_rate_popup') ?? false; // Changed key name
 
         if (!hasSeenRatePopup) {
           await _showRateUsPopup();
         }
 
+        if (!File(image.path).existsSync()) {
+          throw StateError('Selected image was empty');
+        }
+
         // Analyze the plant health
-        final diagnosisResult = await GeminiService.diagnosePlantHealth(File(image.path));
+        final diagnosisResult = await GeminiService.diagnosePlantHealth(
+          File(image.path),
+        );
 
         // Stop animations
         _scanLineController.stop();
@@ -161,12 +172,31 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
         setState(() => _isAnalyzing = false);
 
         if (diagnosisResult != null && mounted) {
+          final recovery = context.read<RecoveryProvider>();
+          final existingPlant = widget.plant;
+          PlantDiagnosis? diagnosis;
+          TreatmentPlan? treatment;
+          if (existingPlant != null) {
+            diagnosis = await recovery.persistDiagnosisFromGemini(
+              geminiJson: diagnosisResult,
+              plant: existingPlant,
+              photoPath: image.path,
+            );
+            treatment = recovery.draftTreatment(
+              geminiJson: diagnosisResult,
+              diagnosis: diagnosis,
+            );
+          }
+          if (!mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => DiagnosisResultScreen(
                 imageFile: File(image.path),
                 diagnosisData: diagnosisResult,
+                plant: existingPlant,
+                diagnosis: diagnosis,
+                treatment: treatment,
               ),
             ),
           );
@@ -254,14 +284,17 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                   width: double.infinity,
                   height: 50,
                   child: ElevatedButton(
-                      onPressed: () async {
-                        // Mark as seen before closing
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setBool('has_seen_rate_popup', true); // Changed key name
+                    onPressed: () async {
+                      // Mark as seen before closing
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setBool(
+                        'has_seen_rate_popup',
+                        true,
+                      ); // Changed key name
 
-                        Navigator.pop(context);
-                        await RateApp.rateApp();
-                      },
+                      Navigator.pop(context);
+                      await RateApp.rateApp();
+                    },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF4CAF50),
                       shape: RoundedRectangleBorder(
@@ -286,13 +319,16 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                   width: double.infinity,
                   height: 50,
                   child: TextButton(
-                      onPressed: () async {
-                        // Mark as seen before closing
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setBool('has_seen_rate_popup', true); // Changed key name
+                    onPressed: () async {
+                      // Mark as seen before closing
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setBool(
+                        'has_seen_rate_popup',
+                        true,
+                      ); // Changed key name
 
-                        Navigator.pop(context);
-                      },
+                      Navigator.pop(context);
+                    },
                     style: TextButton.styleFrom(
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -363,7 +399,10 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                   color: const Color(0xFFE8F5E8),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.photo_library, color: Color(0xFF4CAF50)),
+                child: const Icon(
+                  Icons.photo_library,
+                  color: Color(0xFF4CAF50),
+                ),
               ),
               title: Text(
                 'Gallery',
@@ -445,7 +484,9 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
 
                   // Description
                   Text(
-                    'Take a photo of your plant to diagnose health issues and get care recommendations',
+                    widget.plant == null
+                        ? 'Take a photo of the affected area. Get close to the leaf or stem that looks off.'
+                        : 'Get close to the affected leaf on ${widget.plant!.name}.',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
                       fontSize: 16,
@@ -464,14 +505,14 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                   const SizedBox(height: 16),
                   _buildFeatureItem(
                     Icons.coronavirus_rounded,
-                    'Disease Diagnosis',
-                    'Detect plant diseases and infections',
+                    'A closer look',
+                    'What we noticed on the affected area',
                   ),
                   const SizedBox(height: 16),
                   _buildFeatureItem(
                     Icons.medical_services_rounded,
-                    'Treatment Guide',
-                    'Get step-by-step care instructions',
+                    'What to do next',
+                    'A gentle first step, then a simple plan',
                   ),
                   const SizedBox(height: 40),
 
@@ -488,7 +529,11 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                         ),
                         elevation: 0,
                       ),
-                      icon: const Icon(Icons.camera_alt, color: Colors.white, size: 24),
+                      icon: const Icon(
+                        Icons.camera_alt,
+                        color: Colors.white,
+                        size: 24,
+                      ),
                       label: Text(
                         'Start Diagnosis',
                         style: GoogleFonts.poppins(
@@ -534,7 +579,9 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: const Color(0xFF4CAF50).withOpacity(0.3 - (opacity * 0.3)),
+                            color: const Color(
+                              0xFF4CAF50,
+                            ).withOpacity(0.3 - (opacity * 0.3)),
                             width: 2,
                           ),
                         ),
@@ -634,10 +681,19 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                             // Scanning particles
                             ...List.generate(8, (index) {
                               final angle = (index / 8) * 2 * 3.14159;
-                              final radius = 80 + ((_particleController.value + (index * 0.125)) % 1.0) * 30;
+                              final radius =
+                                  80 +
+                                  ((_particleController.value +
+                                              (index * 0.125)) %
+                                          1.0) *
+                                      30;
                               final x = 110 + radius * cos(angle);
                               final y = 110 + radius * sin(angle);
-                              final opacity = 1.0 - ((_particleController.value + (index * 0.125)) % 1.0);
+                              final opacity =
+                                  1.0 -
+                                  ((_particleController.value +
+                                          (index * 0.125)) %
+                                      1.0);
 
                               return Positioned(
                                 left: x - 3,
@@ -646,11 +702,15 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                                   width: 6,
                                   height: 6,
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF4CAF50).withOpacity(opacity * 0.8),
+                                    color: const Color(
+                                      0xFF4CAF50,
+                                    ).withOpacity(opacity * 0.8),
                                     shape: BoxShape.circle,
                                     boxShadow: [
                                       BoxShadow(
-                                        color: const Color(0xFF4CAF50).withOpacity(opacity * 0.5),
+                                        color: const Color(
+                                          0xFF4CAF50,
+                                        ).withOpacity(opacity * 0.5),
                                         blurRadius: 4,
                                       ),
                                     ],
@@ -705,7 +765,9 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                     CircularProgressIndicator(
                       value: null,
                       strokeWidth: 3,
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF4CAF50)),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFF4CAF50),
+                      ),
                     ),
                     Icon(
                       Icons.health_and_safety_rounded,
@@ -734,7 +796,8 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen> with Ticker
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(3, (index) {
                       final delay = index * 0.3;
-                      final opacity = ((_particleController.value + delay) % 1.0);
+                      final opacity =
+                          ((_particleController.value + delay) % 1.0);
                       return Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 2),
                         child: Container(
@@ -852,11 +915,7 @@ class _ScanGridPainter extends CustomPainter {
     // Draw vertical lines
     for (int i = 0; i <= 10; i++) {
       final x = (size.width / 10) * i;
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, size.height),
-        paint,
-      );
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
 
     // Draw corner markers
@@ -872,16 +931,40 @@ class _ScanGridPainter extends CustomPainter {
     canvas.drawLine(Offset(0, 0), Offset(0, cornerSize), cornerPaint);
 
     // Top-right
-    canvas.drawLine(Offset(size.width - cornerSize, 0), Offset(size.width, 0), cornerPaint);
-    canvas.drawLine(Offset(size.width, 0), Offset(size.width, cornerSize), cornerPaint);
+    canvas.drawLine(
+      Offset(size.width - cornerSize, 0),
+      Offset(size.width, 0),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(size.width, 0),
+      Offset(size.width, cornerSize),
+      cornerPaint,
+    );
 
     // Bottom-left
-    canvas.drawLine(Offset(0, size.height - cornerSize), Offset(0, size.height), cornerPaint);
-    canvas.drawLine(Offset(0, size.height), Offset(cornerSize, size.height), cornerPaint);
+    canvas.drawLine(
+      Offset(0, size.height - cornerSize),
+      Offset(0, size.height),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(0, size.height),
+      Offset(cornerSize, size.height),
+      cornerPaint,
+    );
 
     // Bottom-right
-    canvas.drawLine(Offset(size.width - cornerSize, size.height), Offset(size.width, size.height), cornerPaint);
-    canvas.drawLine(Offset(size.width, size.height - cornerSize), Offset(size.width, size.height), cornerPaint);
+    canvas.drawLine(
+      Offset(size.width - cornerSize, size.height),
+      Offset(size.width, size.height),
+      cornerPaint,
+    );
+    canvas.drawLine(
+      Offset(size.width, size.height - cornerSize),
+      Offset(size.width, size.height),
+      cornerPaint,
+    );
   }
 
   @override

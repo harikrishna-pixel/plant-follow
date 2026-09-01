@@ -1,3 +1,5 @@
+import 'plant_model.dart';
+
 class PlantFolder {
   final String id;
   final String name;
@@ -31,6 +33,10 @@ class PlantFolder {
       createdAt: DateTime.parse(json['createdAt'] as String),
       plantIds: (json['plantIds'] as List<dynamic>?)?.cast<String>() ?? [],
     );
+  }
+
+  bool containsPlant(Plant plant) {
+    return plantIds.any(plant.matchesStoredId);
   }
 
   PlantFolder copyWith({

@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../model/data_model/plant_search_result.dart';
-import '../utils/constants.dart';
+import 'plant_ai_client.dart';
 import 'plant_local.dart';
 import 'weather_service.dart';
 
@@ -55,9 +55,7 @@ class SearchService {
   final WeatherService _weatherService;
 
   static const _maxPlants = 10;
-  static String get _endpointPath =>
-      '/v1/models/${AppConstants.geminiModel}:generateContent';
-  
+
   String? _lastKnownCity; // Cache last known city
 
   /// Get current city - uses cached city if available to avoid unnecessary API calls
@@ -128,7 +126,7 @@ class SearchService {
       debugPrint('🧹 Force refresh - clearing cache for $city...');
       await LocalStorageService.clearSearchCache(city);
     }
-    debugPrint('❌ No cache found, fetching from Gemini API...');
+    debugPrint('❌ No cache found, fetching plant recommendations...');
     final prompt = _buildPrompt(
       city: city,
       weather: weather,
@@ -136,40 +134,17 @@ class SearchService {
       longitude: position.longitude,
     );
 
-    final uri = Uri.parse(
-      '${AppConstants.geminiBaseUrl}$_endpointPath?key=${AppConstants.geminiApiKey}',
-    );
-
-    final response = await http.post(
-      uri,
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode(prompt),
-    );
-
-    if (response.statusCode != 200) {
-      debugPrint('❌ Gemini API error: ${response.statusCode}');
-      debugPrint('Response: ${response.body}');
-      throw Exception('Failed to fetch recommendations: ${response.statusCode}');
+    final text = await PlantAiClient.complete(input: prompt);
+    debugPrint('✅ Plant AI response received for $city');
+    debugPrint('📝 Parsing Plant AI response...');
+    final decoded = PlantAiClient.extractJson(text);
+    if (decoded == null) {
+      debugPrint('❌ Could not extract JSON from Plant AI response');
+      debugPrint(
+        'Raw text: ${text.substring(0, text.length > 200 ? 200 : text.length)}...',
+      );
+      throw Exception('Could not parse plant recommendations');
     }
-
-    debugPrint('✅ Gemini API response received for $city');
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    final text = data['candidates']?[0]?['content']?['parts']?[0]?['text'];
-    if (text is! String) {
-      debugPrint('❌ Invalid response structure from Gemini');
-      throw Exception('Invalid response structure from Gemini');
-    }
-
-    debugPrint('📝 Parsing Gemini response...');
-    // Gemini responses may include narrative text; extract JSON block
-    final match = RegExp(r'\{.*\}', dotAll: true).firstMatch(text);
-    if (match == null) {
-      debugPrint('❌ Could not extract JSON from Gemini response');
-      debugPrint('Raw text: ${text.substring(0, text.length > 200 ? 200 : text.length)}...');
-      throw Exception('Could not parse Gemini response');
-    }
-
-    final decoded = jsonDecode(match.group(0)!) as Map<String, dynamic>;
     var result = PlantSearchResult.fromJson(decoded);
 
     debugPrint('✅ Parsed ${result.categories.length} categories and ${result.plants.length} plants');
@@ -222,7 +197,7 @@ class SearchService {
     return result;
   }
 
-  Map<String, dynamic> _buildPrompt({
+  String _buildPrompt({
     required String city,
     required WeatherData weather,
     required double latitude,
@@ -233,12 +208,7 @@ class SearchService {
     final description = weather.description;
     final wind = weather.windSpeed.toStringAsFixed(1);
 
-    return {
-      'contents': [
-        {
-          'parts': [
-            {
-              'text': """
+    return '''
 You are a botany expert assistant. The user is currently in $city (lat: $latitude, lon: $longitude).
 Current weather summary: $description, temperature $temperature°C, humidity $humidity%, wind speed $wind m/s.
 
@@ -286,11 +256,6 @@ Example response:
     {"name": "Aloe Vera", "scientific_name": "Aloe barbadensis", "category": "Succulents", "description": "Medicinal succulent", "image_url": ""}
   ]
 }
-"""
-            }
-          ]
-        }
-      ]
-    };
+''';
   }
 }

@@ -1,73 +1,152 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 
-class DiagnosisResultScreen extends StatelessWidget {
+import '../../../model/data_model/plant_model.dart';
+import '../../../model/data_model/recovery_models.dart';
+import '../../../provider/plant_provider.dart';
+import '../../../provider/recovery_provider.dart';
+import 'recovery_checkin_screen.dart';
+
+class DiagnosisResultScreen extends StatefulWidget {
   final File imageFile;
   final Map<String, dynamic> diagnosisData;
+  final Plant? plant;
+  final PlantDiagnosis? diagnosis;
+  final TreatmentPlan? treatment;
 
   const DiagnosisResultScreen({
     super.key,
     required this.imageFile,
     required this.diagnosisData,
+    this.plant,
+    this.diagnosis,
+    this.treatment,
   });
 
-  Color _getHealthColor(String health) {
-    switch (health.toLowerCase()) {
+  @override
+  State<DiagnosisResultScreen> createState() => _DiagnosisResultScreenState();
+}
+
+class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> {
+  late TreatmentPlan? _treatment;
+  PlantDiagnosis? _diagnosis;
+  Plant? _plant;
+  RecoveryCase? _case;
+  bool _starting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _treatment = widget.treatment;
+    _diagnosis = widget.diagnosis;
+    _plant = widget.plant;
+    if (_plant != null) {
+      _case = context.read<RecoveryProvider>().activeCaseForPlant(_plant!.id);
+    }
+  }
+
+  Color _conditionColor(String condition) {
+    switch (condition.toLowerCase()) {
+      case 'looking okay':
       case 'healthy':
         return const Color(0xFF4CAF50);
-      case 'unhealthy':
-        return const Color(0xFFFF9800);
-      case 'critical':
-        return const Color(0xFFF44336);
+      case 'struggling':
+        return const Color(0xFFE65100);
       default:
-        return Colors.grey;
+        return const Color(0xFFF9A825);
     }
   }
 
-  Color _getSeverityColor(String severity) {
-    switch (severity.toLowerCase()) {
-      case 'low':
-        return const Color(0xFF4CAF50);
-      case 'medium':
-        return const Color(0xFFFF9800);
-      case 'high':
-        return const Color(0xFFF44336);
-      default:
-        return Colors.grey;
+  Future<void> _startRecovery() async {
+    final recovery = context.read<RecoveryProvider>();
+    setState(() => _starting = true);
+    try {
+      var plant = _plant;
+      var diagnosis = _diagnosis;
+      var treatment = _treatment;
+      if (plant == null) {
+        plant = Plant(
+          name: widget.diagnosisData['plant_name'] as String? ?? 'Unknown plant',
+          scientificName: '',
+          description: '',
+          taxonomy: const {},
+          nativeRegion: '',
+          growthSeason: '',
+          toxicity: '',
+          careGuide: const {},
+          healthScan: '',
+          commonPests: '',
+          commonDiseases: '',
+          usage: '',
+          funFact: '',
+          imagePath: widget.imageFile.path,
+        );
+        await context.read<PlantProvider>().saveFavorite(plant);
+      }
+      diagnosis ??= await recovery.persistDiagnosisFromGemini(
+        geminiJson: widget.diagnosisData,
+        plant: plant,
+        photoPath: widget.imageFile.path,
+      );
+      treatment ??= recovery.draftTreatment(
+        geminiJson: widget.diagnosisData,
+        diagnosis: diagnosis,
+      );
+      final opened = await recovery.startRecovery(
+        plant: plant,
+        diagnosis: diagnosis,
+        treatment: treatment,
+      );
+      if (!mounted) return;
+      setState(() {
+        _plant = plant;
+        _diagnosis = diagnosis;
+        _treatment = recovery.treatmentById(opened.treatmentId) ?? treatment;
+        _case = opened;
+        _starting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(recovery.checkBackSentence(opened)),
+          backgroundColor: const Color(0xFF2E7D32),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _starting = false);
     }
   }
 
-  Color _getPriorityColor(String priority) {
-    switch (priority.toLowerCase()) {
-      case 'immediate':
-        return const Color(0xFFF44336);
-      case 'high':
-        return const Color(0xFFFF5722);
-      case 'medium':
-        return const Color(0xFFFF9800);
-      case 'low':
-        return const Color(0xFF4CAF50);
-      default:
-        return Colors.grey;
-    }
+  Future<void> _toggleStep(TreatmentStep step) async {
+    final treatment = _treatment;
+    if (treatment == null || treatment.recoveryCaseId == null) return;
+    await context.read<RecoveryProvider>().completeTreatmentStep(
+          treatment: treatment,
+          stepId: step.id,
+        );
+    setState(() {
+      _treatment = context.read<RecoveryProvider>().treatmentById(treatment.id);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final plantName = diagnosisData['plant_name'] ?? 'Unknown Plant';
-    final overallHealth = diagnosisData['overall_health'] ?? 'Unknown';
-    final healthScore = diagnosisData['health_score'] ?? 0;
-    final issuesDetected = diagnosisData['issues_detected'] as List<dynamic>? ?? [];
-    final recommendations = diagnosisData['recommendations'] as List<dynamic>? ?? [];
-    final preventiveCare = diagnosisData['preventive_care'] as Map<String, dynamic>? ?? {};
-    final prognosis = diagnosisData['prognosis'] ?? 'No prognosis available';
+    final diagnosis = _diagnosis;
+    final plantName = diagnosis?.plantName.isNotEmpty == true
+        ? diagnosis!.plantName
+        : (widget.diagnosisData['plant_name'] ?? 'Plant');
+    final condition = diagnosis?.overallCondition.isNotEmpty == true
+        ? diagnosis!.overallCondition
+        : 'needs attention';
+    final confidence = diagnosis?.confidence.wireName ?? 'medium';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FDF8),
       appBar: AppBar(
         title: Text(
-          'Diagnosis Result',
+          'What we noticed',
           style: GoogleFonts.poppins(
             fontSize: 20,
             fontWeight: FontWeight.w600,
@@ -82,483 +161,65 @@ class DiagnosisResultScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Plant Image
-            Container(
+            SizedBox(
               width: double.infinity,
               height: 250,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Image.file(
-                imageFile,
-                fit: BoxFit.cover,
-              ),
+              child: Image.file(widget.imageFile, fit: BoxFit.cover),
             ),
-
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Plant Name
                   Text(
-                    plantName,
+                    plantName.toString(),
                     style: GoogleFonts.poppins(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                       color: const Color(0xFF2E7D32),
                     ),
                   ),
-                  const SizedBox(height: 16),
-
-                  // Health Status Card
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.1),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Overall Health',
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey[800],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 8,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _getHealthColor(overallHealth).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: _getHealthColor(overallHealth),
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: Text(
-                                overallHealth,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: _getHealthColor(overallHealth),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        // Health Score
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Health Score',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 13,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: LinearProgressIndicator(
-                                      value: healthScore / 100,
-                                      minHeight: 10,
-                                      backgroundColor: Colors.grey[200],
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        _getHealthColor(overallHealth),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Text(
-                              '$healthScore/100',
-                              style: GoogleFonts.poppins(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: _getHealthColor(overallHealth),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Issues Detected
-                  if (issuesDetected.isNotEmpty) ...[
-                    Text(
-                      'Issues Detected',
-                      style: GoogleFonts.poppins(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF2E7D32),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...issuesDetected.map((issue) {
-                      final type = issue['type'] ?? 'Unknown';
-                      final name = issue['name'] ?? 'Unknown Issue';
-                      final severity = issue['severity'] ?? 'medium';
-                      final description = issue['description'] ?? '';
-                      final symptoms = issue['symptoms'] as List<dynamic>? ?? [];
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: _getSeverityColor(severity).withOpacity(0.3),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    name,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: const Color(0xFF2E7D32),
-                                    ),
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: _getSeverityColor(severity).withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    severity.toUpperCase(),
-                                    style: GoogleFonts.inter(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: _getSeverityColor(severity),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.grey[100],
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                type.toUpperCase(),
-                                style: GoogleFonts.inter(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey[700],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              description,
-                              style: GoogleFonts.inter(
-                                fontSize: 14,
-                                color: Colors.grey[700],
-                                height: 1.5,
-                              ),
-                            ),
-                            if (symptoms.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Text(
-                                'Symptoms:',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey[800],
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              ...symptoms.map((symptom) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 4),
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '• ',
-                                          style: GoogleFonts.inter(
-                                            fontSize: 14,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: Text(
-                                            symptom.toString(),
-                                            style: GoogleFonts.inter(
-                                              fontSize: 13,
-                                              color: Colors.grey[600],
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  )),
-                            ],
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Recommendations
-                  if (recommendations.isNotEmpty) ...[
-                    Text(
-                      'Treatment Recommendations',
-                      style: GoogleFonts.poppins(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF2E7D32),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...recommendations.asMap().entries.map((entry) {
-                      final index = entry.key;
-                      final rec = entry.value;
-                      final action = rec['action'] ?? 'No action specified';
-                      final priority = rec['priority'] ?? 'medium';
-                      final details = rec['details'] ?? '';
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.1),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF4CAF50).withOpacity(0.1),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      '${index + 1}',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: const Color(0xFF4CAF50),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    action,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                      color: const Color(0xFF2E7D32),
-                                    ),
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: _getPriorityColor(priority).withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    priority.toUpperCase(),
-                                    style: GoogleFonts.inter(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: _getPriorityColor(priority),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              details,
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: Colors.grey[700],
-                                height: 1.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Preventive Care
-                  if (preventiveCare.isNotEmpty) ...[
-                    Text(
-                      'Preventive Care',
-                      style: GoogleFonts.poppins(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF2E7D32),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (preventiveCare['watering'] != null)
-                            _buildCareItem(
-                              Icons.water_drop,
-                              'Watering',
-                              preventiveCare['watering'],
-                            ),
-                          if (preventiveCare['sunlight'] != null)
-                            _buildCareItem(
-                              Icons.wb_sunny,
-                              'Sunlight',
-                              preventiveCare['sunlight'],
-                            ),
-                          if (preventiveCare['fertilization'] != null)
-                            _buildCareItem(
-                              Icons.eco,
-                              'Fertilization',
-                              preventiveCare['fertilization'],
-                            ),
-                          if (preventiveCare['general'] != null)
-                            _buildCareItem(
-                              Icons.tips_and_updates,
-                              'General Tips',
-                              preventiveCare['general'],
-                              isLast: true,
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Prognosis
-                  Text(
-                    'Prognosis',
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF2E7D32),
-                    ),
-                  ),
                   const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFF4CAF50).withOpacity(0.1),
-                          const Color(0xFF66BB6A).withOpacity(0.05),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: const Color(0xFF4CAF50).withOpacity(0.3),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.info_outline,
-                          color: Color(0xFF4CAF50),
-                          size: 24,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            prognosis,
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              color: Colors.grey[800],
-                              height: 1.5,
-                            ),
+                  Row(
+                    children: [
+                      _chip(condition, _conditionColor(condition)),
+                      const SizedBox(width: 8),
+                      _chip('Confidence: $confidence', Colors.grey.shade700),
+                    ],
+                  ),
+                  if (_case != null) ...[
+                    const SizedBox(height: 16),
+                    _checkBackCard(context),
+                  ],
+                  const SizedBox(height: 24),
+                  if (diagnosis != null) ..._diagnosisBlocks(diagnosis),
+                  if (diagnosis == null) _legacyFallback(),
+                  if (_treatment != null) ..._treatmentBlocks(),
+                  const SizedBox(height: 12),
+                  if (_case == null)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: _starting ? null : _startRecovery,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2E7D32),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
+                        child: Text(
+                          _starting ? 'Starting…' : 'Start recovery plan',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    _openCaseActions(context),
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
@@ -568,54 +229,306 @@ class DiagnosisResultScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildCareItem(IconData icon, String title, String description,
-      {bool isLast = false}) {
-    return Column(
-      children: [
-        Row(
+  Widget _chip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.inter(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  Widget _checkBackCard(BuildContext context) {
+    final recovery = context.read<RecoveryProvider>();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F5E8),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        recovery.checkBackSentence(_case!),
+        style: GoogleFonts.poppins(
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: const Color(0xFF1B5E20),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _diagnosisBlocks(PlantDiagnosis diagnosis) {
+    return [
+      _sectionTitle('Likely issue'),
+      _card(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E8),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: const Color(0xFF4CAF50), size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.poppins(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF2E7D32),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: Colors.grey[700],
-                      height: 1.5,
-                    ),
-                  ),
-                ],
+            Text(
+              diagnosis.primaryIssue.name,
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF2E7D32),
               ),
             ),
+            if (diagnosis.primaryIssue.explanation.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                diagnosis.primaryIssue.explanation,
+                style: GoogleFonts.inter(height: 1.5, color: Colors.grey[800]),
+              ),
+            ],
+            if (diagnosis.primaryIssue.evidence.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Affected area: ${diagnosis.primaryIssue.evidence}',
+                style: GoogleFonts.inter(color: Colors.grey[700]),
+              ),
+            ],
           ],
         ),
-        if (!isLast) ...[
-          const SizedBox(height: 16),
-          Divider(color: Colors.grey[200], height: 1),
-          const SizedBox(height: 16),
-        ],
+      ),
+      if (diagnosis.confidence == DiagnosisConfidence.medium &&
+          diagnosis.alternativeIssue != null &&
+          !diagnosis.alternativeIssue!.isEmpty) ...[
+        _sectionTitle('Another possibility'),
+        _card(
+          child: Text(
+            '${diagnosis.alternativeIssue!.name}. ${diagnosis.alternativeIssue!.explanation}',
+            style: GoogleFonts.inter(height: 1.5, color: Colors.grey[800]),
+          ),
+        ),
       ],
+      if (diagnosis.confidence == DiagnosisConfidence.low) ...[
+        _sectionTitle('Two likely explanations'),
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '1. ${diagnosis.primaryIssue.name}',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+              ),
+              if (diagnosis.secondExplanation != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '2. ${diagnosis.secondExplanation!.name}',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                'A check-back will help tell these apart. We will not pretend certainty.',
+                style: GoogleFonts.inter(color: Colors.grey[700]),
+              ),
+            ],
+          ),
+        ),
+      ],
+      _sectionTitle('One safe thing you can do now'),
+      _card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              diagnosis.firstAid.action,
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF2E7D32),
+              ),
+            ),
+            if (diagnosis.firstAid.method.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                diagnosis.firstAid.method,
+                style: GoogleFonts.inter(height: 1.5, color: Colors.grey[800]),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _treatmentBlocks() {
+    final steps = _treatment!.steps;
+    return [
+      _sectionTitle('What to do next'),
+      ...steps.map((step) {
+        return _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 14,
+                    backgroundColor: const Color(0xFF4CAF50),
+                    child: Text(
+                      '${step.order}',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      step.title,
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF2E7D32),
+                      ),
+                    ),
+                  ),
+                  if (_case != null)
+                    IconButton(
+                      onPressed: step.isCompleted
+                          ? null
+                          : () => _toggleStep(step),
+                      icon: Icon(
+                        step.isCompleted
+                            ? Icons.check_circle
+                            : Icons.circle_outlined,
+                        color: const Color(0xFF4CAF50),
+                      ),
+                    ),
+                ],
+              ),
+              if (step.timing.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    step.timing,
+                    style: GoogleFonts.inter(color: Colors.grey[700]),
+                  ),
+                ),
+              if (step.method.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    step.method,
+                    style: GoogleFonts.inter(height: 1.5, color: Colors.grey[800]),
+                  ),
+                ),
+              if (step.rationale.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    step.rationale,
+                    style: GoogleFonts.inter(color: Colors.grey[600], height: 1.4),
+                  ),
+                ),
+              if (step.isIrreversible)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Please pause before this step: ${step.irreversibleWarning}',
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFFE65100),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      }),
+    ];
+  }
+
+  Widget _legacyFallback() {
+    final noticed = widget.diagnosisData['what_we_noticed'] ??
+        widget.diagnosisData['description'] ??
+        '';
+    return _card(
+      child: Text(
+        noticed.toString().isEmpty
+            ? 'We looked at the photo and prepared a gentle next step.'
+            : noticed.toString(),
+        style: GoogleFonts.inter(height: 1.5),
+      ),
+    );
+  }
+
+  Widget _openCaseActions(BuildContext context) {
+    final recovery = context.read<RecoveryProvider>();
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: OutlinedButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => RecoveryCheckInScreen(
+                    recoveryCase: _case!,
+                    plant: _plant!,
+                    stage: _case!.day3CompletedAt == null
+                        ? CheckInStage.day3
+                        : CheckInStage.day7,
+                  ),
+                ),
+              );
+            },
+            child: Text(
+              'Open check-in',
+              style: GoogleFonts.poppins(color: const Color(0xFF2E7D32)),
+            ),
+          ),
+        ),
+        TextButton(
+          onPressed: () => recovery.deferTreatment(_case!),
+          child: Text(
+            "I haven't got to it yet",
+            style: GoogleFonts.inter(color: Colors.grey[700]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionTitle(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10, top: 8),
+      child: Text(
+        text,
+        style: GoogleFonts.poppins(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: const Color(0xFF2E7D32),
+        ),
+      ),
+    );
+  }
+
+  Widget _card({required Widget child}) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: child,
     );
   }
 }

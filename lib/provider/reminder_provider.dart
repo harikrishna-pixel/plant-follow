@@ -122,4 +122,28 @@ class ReminderProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> rescheduleReminder(String reminderId, DateTime nextDueAt) async {
+    final index = _reminders.indexWhere((r) => r.id == reminderId);
+    if (index == -1) return;
+
+    await NotificationService.cancelNotification(_reminders[index].id.hashCode);
+    final updated = _reminders[index].copyWith(
+      dateTime: nextDueAt,
+      isCompleted: false,
+    );
+    _reminders[index] = updated;
+    await NotificationService.scheduleNotification(
+      id: updated.id.hashCode,
+      title: 'Plant Follow - ${updated.taskType}',
+      body: ReminderNotificationTexts.getNotificationText(
+        updated.taskType,
+        updated.plantName,
+        updated.id,
+      ),
+      scheduledDate: updated.dateTime,
+    );
+    await _saveReminders();
+    notifyListeners();
+  }
 }

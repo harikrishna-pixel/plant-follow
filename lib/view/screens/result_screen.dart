@@ -16,6 +16,7 @@ import '../../widgets/banner_widget.dart';
 import 'scan_screen.dart';
 import 'reminder/add_reminder_dialog.dart';
 import 'favourite_screen/folder_detail_screen.dart';
+import 'plant_context/plant_context_sheet.dart';
 
 
 class ResultScreen extends StatefulWidget {
@@ -1275,9 +1276,11 @@ Shared from PlantFollow
                               fontSize: 13,
                             ),
                           ),
-                          onPressed: () {
-                            final success = provider.saveFavorite(widget.plant);
+                          onPressed: () async {
+                            final success =
+                                await provider.saveFavorite(widget.plant);
 
+                            if (!mounted) return;
                             if (success) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
@@ -1294,6 +1297,10 @@ Shared from PlantFollow
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
+                              );
+                              await showPlantContextSheet(
+                                context,
+                                plant: widget.plant,
                               );
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(

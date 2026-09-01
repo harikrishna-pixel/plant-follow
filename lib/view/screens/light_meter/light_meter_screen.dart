@@ -1,12 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:camera/camera.dart';
 import 'package:image/image.dart' as img;
-import 'package:http/http.dart' as http;
-import 'package:plantidentifier/utils/constants.dart';
+import 'package:plantidentifier/services/plant_ai_client.dart';
 
 class LightMeterScreen extends StatefulWidget {
   const LightMeterScreen({super.key});
@@ -16,7 +14,6 @@ class LightMeterScreen extends StatefulWidget {
 }
 
 class _LightMeterScreenState extends State<LightMeterScreen> with SingleTickerProviderStateMixin {
-  String get _endpoint => AppConstants.geminiGenerateContentEndpoint;
 
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
@@ -215,52 +212,11 @@ Provide a detailed analysis including:
 Keep the response concise but informative.
 ''';
 
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'contents': [
-            {
-              'parts': [
-                {'text': prompt},
-              ],
-            },
-          ],
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final reply = data['candidates'][0]['content']['parts'][0]['text'];
-        // Remove asterisks and clean up formatting
-        final cleanedReply = _cleanMarkdown(reply);
-        setState(() {
-          _recommendation = cleanedReply;
-        });
-      } else {
-        // Show red snackbar for error
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Check your internet connection',
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          );
-        }
-        setState(() {
-          _recommendation = 'Check your internet connection';
-        });
-      }
+      final reply = await PlantAiClient.complete(input: prompt);
+      final cleanedReply = _cleanMarkdown(reply);
+      setState(() {
+        _recommendation = cleanedReply;
+      });
     } catch (e) {
       // Show red snackbar for internet connection error
       if (mounted) {

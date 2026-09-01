@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:purchases_ui_flutter/views/paywall_view.dart';
 
-import '../ai_chat_botanist/chat_history_screen.dart';
-import '../favourite_screen/favourite_screens.dart';
-import '../favourite_screen/folder_manager.dart';
+import '../../../navigation/v1_nav.dart';
 import '../favourite_screen/my_garden_screen.dart';
 import '../home_screen.dart';
 import '../more_screen/more_screen.dart';
-import '../scan_screen.dart';
+import '../camera/camera_entry_sheet.dart';
 
 class BottomNavExample extends StatefulWidget {
   const BottomNavExample({super.key});
@@ -19,22 +16,21 @@ class BottomNavExample extends StatefulWidget {
 }
 
 class _BottomNavExampleState extends State<BottomNavExample> {
-  int _currentIndex = 0;
+  int _currentIndex = V1Nav.todayIndex;
   bool _isKeyboardVisible = false;
 
-  // Define your screens here
-  final List<Widget> _screens = [
-    const HomeScreen(), // Your home screen
-    const MyGardenScreen(), // My Garden screen with tabs
-    const ScanScreen(), // This won't be shown in PageView
-    const ChatHistoryScreen(), // Chat history with AI Botanist button
-    const MoreScreen(), // Your profile screen
+  final List<Widget> _screens = const [
+    HomeScreen(),
+    MyGardenScreen(),
+    SizedBox.shrink(),
+    MoreScreen(),
   ];
 
-  void _onItemTapped(int index) {
-    // Handle center button separately - navigate to scan screen
-    if (index == 2) {
-      Get.to(() => const ScanScreen());
+  Future<void> _onItemTapped(int index) async {
+    if (index == V1Nav.cameraActionIndex) {
+      final mode = await showCameraEntrySheet(context);
+      if (!mounted || mode == null) return;
+      Get.to(() => cameraScreenFor(mode));
       return;
     }
 
@@ -45,10 +41,7 @@ class _BottomNavExampleState extends State<BottomNavExample> {
 
   @override
   Widget build(BuildContext context) {
-    // Check if keyboard is visible
     _isKeyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
-    
-    // Hide FAB only when keyboard visible (keeps Scan icon always accessible)
     final shouldHideFAB = _isKeyboardVisible;
 
     return Scaffold(
@@ -56,106 +49,116 @@ class _BottomNavExampleState extends State<BottomNavExample> {
         index: _currentIndex,
         children: _screens,
       ),
-
-      // Floating Action Button - hidden on chat screen and when keyboard is visible
-      floatingActionButton: shouldHideFAB ? null : Container(
-        width: 66,
-        height: 66,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const LinearGradient(
-            colors: [
-              Color(0xFF2E7D32),
-              Color(0xFF43A047)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          // boxShadow: [
-          //   BoxShadow(
-          //     color: const Color(0xFF2E7D32).withOpacity(0.3),
-          //     blurRadius: 12,
-          //     offset: const Offset(0, 4),
-          //   ),
-          // ],
-        ),
-        child: FloatingActionButton(
-          heroTag: 'bottom_bar_scan_fab',
-          onPressed: () => _onItemTapped(2),
-          backgroundColor: Colors.green,
-          shape: CircleBorder(),
-          elevation: 0,
-          child: Image.asset(
-            'assets/bottom_bar_icon/scan.png',
-            width: 39,
-            height: 39,
-            // color: Colors.white,
-          ),
-        ),
-      ),
+      floatingActionButton: shouldHideFAB
+          ? null
+          : Container(
+              width: 66,
+              height: 66,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF2E7D32), Color(0xFF43A047)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: FloatingActionButton(
+                heroTag: 'bottom_bar_scan_fab',
+                onPressed: () => _onItemTapped(V1Nav.cameraActionIndex),
+                backgroundColor: Colors.green,
+                shape: const CircleBorder(),
+                elevation: 0,
+                child: Image.asset(
+                  'assets/bottom_bar_icon/scan.png',
+                  width: 39,
+                  height: 39,
+                ),
+              ),
+            ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      bottomNavigationBar: V1BottomBar(
+        currentIndex: _currentIndex,
+        onTap: _onItemTapped,
+      ),
+    );
+  }
+}
 
-      // Bottom Navigation Bar
-      bottomNavigationBar: BottomAppBar(
-        shape: const CircularNotchedRectangle(),
-        notchMargin: 8.0,
-        elevation: 8,
-        // color: Colors.white,
-        child: SizedBox(
-          height: 60,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              // Home
-              _buildNavItem(
-                iconPath: 'assets/bottom_bar_icon/home-2.png',
-                index: 0,
-                label: 'Home',
-              ),
+class V1BottomBar extends StatelessWidget {
+  final int currentIndex;
+  final ValueChanged<int> onTap;
 
-              // Favorites
-              _buildNavItem(
-                iconPath: 'assets/bottom_bar_icon/flower 4.png',
-                index: 1,
-                label: 'My Garden',
-              ),
+  const V1BottomBar({
+    super.key,
+    required this.currentIndex,
+    required this.onTap,
+  });
 
-              // Spacer for FAB
-              const SizedBox(width: 64),
-
-              // Chat
-              _buildNavItem(
-                iconPath: 'assets/bottom_bar_icon/chat.png',
-                index: 3,
-                label: 'Ask Me',
-              ),
-
-              // Profile
-              _buildNavItem(
-                iconPath: 'assets/bottom_bar_icon/category.png',
-                index: 4,
-                label: 'More',
-              ),
-            ],
-          ),
+  @override
+  Widget build(BuildContext context) {
+    return BottomAppBar(
+      shape: const CircularNotchedRectangle(),
+      notchMargin: 8.0,
+      elevation: 8,
+      child: SizedBox(
+        height: 60,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _NavItem(
+              iconPath: 'assets/bottom_bar_icon/home-2.png',
+              index: V1Nav.todayIndex,
+              label: V1Nav.todayLabel,
+              currentIndex: currentIndex,
+              onTap: onTap,
+            ),
+            _NavItem(
+              iconPath: 'assets/bottom_bar_icon/flower 4.png',
+              index: V1Nav.plantsIndex,
+              label: V1Nav.plantsLabel,
+              currentIndex: currentIndex,
+              onTap: onTap,
+            ),
+            const SizedBox(width: 64),
+            _NavItem(
+              iconPath: 'assets/bottom_bar_icon/category.png',
+              index: V1Nav.meIndex,
+              label: V1Nav.meLabel,
+              currentIndex: currentIndex,
+              onTap: onTap,
+            ),
+          ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildNavItem({
-    required String iconPath,
-    required int index,
-    required String label,
-  }) {
-    final bool isActive = _currentIndex == index;
+class _NavItem extends StatelessWidget {
+  final String iconPath;
+  final int index;
+  final String label;
+  final int currentIndex;
+  final ValueChanged<int> onTap;
 
+  const _NavItem({
+    required this.iconPath,
+    required this.index,
+    required this.label,
+    required this.currentIndex,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = currentIndex == index;
     return Expanded(
       child: InkWell(
         splashColor: Colors.transparent,
         highlightColor: Colors.transparent,
         hoverColor: Colors.transparent,
-        overlayColor: MaterialStateProperty.resolveWith((_) => Colors.transparent),
-        onTap: () => _onItemTapped(index),
+        overlayColor: WidgetStateProperty.resolveWith((_) => Colors.transparent),
+        onTap: () => onTap(index),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
@@ -166,14 +169,14 @@ class _BottomNavExampleState extends State<BottomNavExample> {
               height: 26,
               color: isActive ? const Color(0xFF2E7D32) : Colors.grey[400],
             ),
-            label != 'Chat' ? Text(
+            Text(
               label,
               style: GoogleFonts.inter(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
                 color: isActive ? const Color(0xFF2E7D32) : Colors.grey[600],
               ),
-            ) : const SizedBox.shrink(),
+            ),
             const SizedBox(height: 4),
           ],
         ),

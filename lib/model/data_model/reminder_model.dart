@@ -1,6 +1,8 @@
 class PlantReminder {
   final String id;
   final String plantName;
+  /// Durable plant id when known. Legacy reminders may omit this.
+  final String? plantId;
   final String taskType;
   final DateTime dateTime;
   final bool isCompleted;
@@ -9,6 +11,7 @@ class PlantReminder {
   PlantReminder({
     required this.id,
     required this.plantName,
+    this.plantId,
     required this.taskType,
     required this.dateTime,
     this.isCompleted = false,
@@ -19,6 +22,7 @@ class PlantReminder {
     return {
       'id': id,
       'plantName': plantName,
+      'plantId': plantId,
       'taskType': taskType,
       'dateTime': dateTime.toIso8601String(),
       'isCompleted': isCompleted,
@@ -30,6 +34,7 @@ class PlantReminder {
     return PlantReminder(
       id: json['id'] as String,
       plantName: json['plantName'] as String,
+      plantId: json['plantId'] as String?,
       taskType: json['taskType'] as String,
       dateTime: DateTime.parse(json['dateTime'] as String),
       isCompleted: json['isCompleted'] as bool? ?? false,
@@ -40,6 +45,7 @@ class PlantReminder {
   PlantReminder copyWith({
     String? id,
     String? plantName,
+    String? plantId,
     String? taskType,
     DateTime? dateTime,
     bool? isCompleted,
@@ -48,6 +54,7 @@ class PlantReminder {
     return PlantReminder(
       id: id ?? this.id,
       plantName: plantName ?? this.plantName,
+      plantId: plantId ?? this.plantId,
       taskType: taskType ?? this.taskType,
       dateTime: dateTime ?? this.dateTime,
       isCompleted: isCompleted ?? this.isCompleted,

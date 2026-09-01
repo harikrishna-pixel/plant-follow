@@ -15,7 +15,14 @@ import 'package:plantidentifier/view/screens/privacy_and_terms/privacy.dart';
 import 'package:plantidentifier/view/screens/privacy_and_terms/review.dart';
 import 'package:plantidentifier/view/screens/privacy_and_terms/restore_purchase.dart';
 import 'package:plantidentifier/view/screens/privacy_and_terms/terms.dart';
+import 'package:plantidentifier/navigation/v1_nav.dart';
+import 'package:plantidentifier/view/screens/ai_chat_botanist/chat_history_screen.dart';
+import 'package:plantidentifier/view/screens/history/plant_history_screen.dart';
+import 'package:plantidentifier/view/screens/light_meter/light_meter_screen.dart';
+import 'package:plantidentifier/view/screens/reminder/plant_reminder_screen.dart';
+import 'package:plantidentifier/view/screens/search_plants/search_screens.dart';
 import 'package:plantidentifier/view/screens/wallet/wallet_screen.dart';
+import 'package:plantidentifier/view/screens/weather/weather_screen.dart';
 
 import 'account_screen.dart';
 import 'faq_screen.dart';
@@ -479,7 +486,7 @@ class MoreScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFF6FBF4),
       appBar: AppBar(
         title: Text(
-          'More',
+          V1Nav.meLabel,
           style: GoogleFonts.poppins(
             fontWeight: FontWeight.w600,
             color: const Color(0xFF1B5E20),
@@ -496,8 +503,48 @@ class MoreScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // _HeroCard(user: user),
-              // const SizedBox(height: 24),
+              _SectionHeader(title: 'Tools'),
+              _CardGroup(
+                children: [
+                  _MoreTile(
+                    icon: Icons.chat_bubble_outline_rounded,
+                    title: MeSecondaryTools.aiBotanist,
+                    subtitle: 'Ask plant questions',
+                    onTap: () => Get.to(() => const ChatHistoryScreen()),
+                  ),
+                  _MoreTile(
+                    icon: Icons.search_rounded,
+                    title: MeSecondaryTools.search,
+                    subtitle: 'Look up plants by name',
+                    onTap: () => Get.to(() => const SearchScreens()),
+                  ),
+                  _MoreTile(
+                    icon: Icons.wb_sunny_rounded,
+                    title: MeSecondaryTools.lightMeter,
+                    subtitle: 'Measure light around a plant',
+                    onTap: () => Get.to(() => const LightMeterScreen()),
+                  ),
+                  _MoreTile(
+                    icon: Icons.cloud_outlined,
+                    title: MeSecondaryTools.weather,
+                    subtitle: 'Local conditions',
+                    onTap: () => Get.to(() => const WeatherWidget()),
+                  ),
+                  _MoreTile(
+                    icon: Icons.history_rounded,
+                    title: MeSecondaryTools.scanHistory,
+                    subtitle: 'Past identifications',
+                    onTap: () => Get.to(() => const PlantHistoryScreen()),
+                  ),
+                  _MoreTile(
+                    icon: Icons.notifications_outlined,
+                    title: MeSecondaryTools.reminders,
+                    subtitle: 'Care reminders',
+                    onTap: () => Get.to(() => const PlantReminderScreen()),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 28),
               _SectionHeader(title: 'General'),
               _CardGroup(
                 children: [

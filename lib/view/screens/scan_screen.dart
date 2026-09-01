@@ -18,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../provider/plant_provider.dart';
 import '../../mixpanel/mixpanel.dart';
+import '../../services/picked_media.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -122,8 +123,10 @@ class _ScanScreenState extends State<ScanScreen> with TickerProviderStateMixin {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        await WalletService.instance
-            .setAvailableScans(user.uid, _freeScansRemaining);
+        await WalletService.instance.setAvailableScans(
+          user.uid,
+          _freeScansRemaining,
+        );
       } catch (e) {
         debugPrint('Failed to sync scans to wallet: $e');
       }
@@ -283,19 +286,32 @@ class _ScanScreenState extends State<ScanScreen> with TickerProviderStateMixin {
 
     if (!mounted) return;
 
-    final picked = await ImagePicker().pickImage(
-      source: source,
-      imageQuality: 85,
-    );
-    if (picked != null) {
+    try {
+      final picked = await PickedMedia.pickPlantPhoto(source: source);
+      if (!mounted || picked == null) return;
       setState(() => _image = picked);
       await _identifyPlant();
+    } catch (e) {
+      debugPrint('Scan image pick failed: $e');
+      if (!mounted) return;
+      Fluttertoast.showToast(
+        msg: "Couldn't use that photo. Try another one.",
+        toastLength: Toast.LENGTH_LONG,
+      );
     }
   }
 
   Future<void> _identifyPlant() async {
     if (_image == null) return;
     if (!mounted) return;
+    if (!File(_image!.path).existsSync()) {
+      _scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text("That photo couldn't be opened. Try uploading again."),
+        ),
+      );
+      return;
+    }
 
     final hasInternet = await _hasInternet();
     if (!hasInternet) {
@@ -330,7 +346,7 @@ class _ScanScreenState extends State<ScanScreen> with TickerProviderStateMixin {
       // Mark that user has performed a scan (for Share App popup timing)
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_performed_scan', true);
-      
+
       // Deduct free scan only if not subscribed
       if (!_isSubscribed && _freeScansRemaining > 0) {
         int scansAfterUse = _freeScansRemaining;
@@ -345,16 +361,18 @@ class _ScanScreenState extends State<ScanScreen> with TickerProviderStateMixin {
           } catch (e) {
             debugPrint('Failed to consume wallet scan: $e');
             setState(() {
-              _freeScansRemaining =
-                  (_freeScansRemaining > 0) ? _freeScansRemaining - 1 : 0;
+              _freeScansRemaining = (_freeScansRemaining > 0)
+                  ? _freeScansRemaining - 1
+                  : 0;
             });
             scansAfterUse = _freeScansRemaining;
             await _saveFreeScan(syncRemote: false);
           }
         } else {
           setState(() {
-            _freeScansRemaining =
-                (_freeScansRemaining > 0) ? _freeScansRemaining - 1 : 0;
+            _freeScansRemaining = (_freeScansRemaining > 0)
+                ? _freeScansRemaining - 1
+                : 0;
           });
           scansAfterUse = _freeScansRemaining;
           await _saveFreeScan(syncRemote: false);

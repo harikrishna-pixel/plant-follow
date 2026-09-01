@@ -133,9 +133,6 @@ class _AddToFolderDialogState extends State<AddToFolderDialog> {
 
   @override
   Widget build(BuildContext context) {
-    // Get the stable unique plant ID
-    final plantId = widget.plant.uniqueId;
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: const BoxDecoration(
@@ -198,7 +195,7 @@ class _AddToFolderDialogState extends State<AddToFolderDialog> {
                   itemCount: provider.folders.length,
                   itemBuilder: (context, index) {
                     final folder = provider.folders[index];
-                    final isInFolder = folder.plantIds.contains(plantId);
+                    final isInFolder = folder.containsPlant(widget.plant);
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -242,7 +239,7 @@ class _AddToFolderDialogState extends State<AddToFolderDialog> {
                             : null,
                         onTap: () {
                           if (isInFolder) {
-                            provider.removePlantFromFolder(folder.id, plantId);
+                            provider.removePlantRecordFromFolder(folder.id, widget.plant);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
@@ -257,7 +254,7 @@ class _AddToFolderDialogState extends State<AddToFolderDialog> {
                               ),
                             );
                           } else {
-                            provider.addPlantToFolder(folder.id, plantId);
+                            provider.addPlantRecordToFolder(folder.id, widget.plant);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Row(

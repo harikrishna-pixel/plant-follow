@@ -8,7 +8,9 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../../provider/reminder_provider.dart';
 import '../../../provider/plant_provider.dart';
 import '../../../provider/folder_provider.dart';
+import '../../../provider/care_rule_provider.dart';
 import '../../../model/data_model/reminder_model.dart';
+import '../../../services/plant_record_migration.dart';
 
 class AddReminderDialog extends StatefulWidget {
   final String? initialPlantName;
@@ -160,10 +162,20 @@ class _AddReminderDialogState extends State<AddReminderDialog> {
 
     // Strip "PlantFollow: " prefix if present (for backward compatibility)
     String taskType = _selectedTaskType!.replaceFirst('PlantFollow: ', '');
-    
+    final plantName = _selectedPlantName ?? _plantNameController.text.trim();
+    String? linkedPlantId;
+    final plantProvider = Provider.of<PlantProvider>(context, listen: false);
+    for (final plant in plantProvider.favorites) {
+      if (plant.name == plantName) {
+        linkedPlantId = plant.id;
+        break;
+      }
+    }
+
     final reminder = PlantReminder(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      plantName: _selectedPlantName ?? _plantNameController.text.trim(),
+      plantName: plantName,
+      plantId: linkedPlantId,
       taskType: taskType,
       dateTime: dateTime,
       createdAt: DateTime.now(),
@@ -174,6 +186,10 @@ class _AddReminderDialogState extends State<AddReminderDialog> {
     // Wait for reminder to be added and notification to be scheduled
     await provider.addReminder(reminder);
     print('✅ Reminder added and notification scheduled successfully');
+    if (reminder.plantId != null) {
+      await Provider.of<CareRuleProvider>(context, listen: false)
+          .upsertFromReminder(reminder);
+    }
 
     // Get the navigator and scaffold messenger before popping
     if (!mounted) return;
@@ -337,7 +353,10 @@ class _AddReminderDialogState extends State<AddReminderDialog> {
                 
                 // Get actual plant objects from favorites
                 final gardenPlants = plantProvider.favorites.where((plant) {
-                  return allPlantIds.contains(plant.uniqueId);
+                  return PlantRecordMigration.plantBelongsToStoredIds(
+                    plant,
+                    allPlantIds,
+                  );
                 }).toList();
                 
                 // If no plants in garden, show text field

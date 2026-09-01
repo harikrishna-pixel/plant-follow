@@ -1,25 +1,10 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:http/http.dart' as http;
-
 import '../model/data_model/plant_model.dart';
-import '../utils/constants.dart';
+import 'plant_ai_client.dart';
 
 class GeminiService {
-  static String get _endpoint => AppConstants.geminiGenerateContentEndpoint;
-
-  static Future<Plant?> identifyPlant(File image) async {
-    try {
-      final bytes = await image.readAsBytes();
-      final base64Image = base64Encode(bytes);
-
-      final prompt = {
-        "contents": [
-          {
-            "parts": [
-              {
-                "text": """
+  static const _identifyPrompt = '''
 You are a plant identification and care expert.
 Analyze the attached image and provide structured JSON output with detailed plant information.
 
@@ -46,38 +31,46 @@ Required fields:
 - fun_fact: (One interesting fact for user engagement)
 
 Format: JSON only. No extra explanation.
-""",
-              },
-              {
-                "inline_data": {"mime_type": "image/jpeg", "data": base64Image},
-              },
-            ],
-          },
-        ],
-      };
+''';
 
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(prompt),
+  static const _diagnosePrompt = '''
+You are a plant health diagnosis expert.
+Analyze the attached plant image and provide a detailed health assessment in JSON format.
+
+Required fields (JSON only, no extra explanation):
+- plant_name
+- overall_condition: looking_okay / needs_attention / struggling
+- confidence: high / medium / low
+- what_we_noticed: short description of the affected area
+- primary_issue: { name, explanation, evidence }
+- alternative_issue: { name, explanation, evidence } (required when confidence is medium)
+- second_explanation: { name, explanation, evidence } (required when confidence is low)
+- first_aid: { action, method } one safe thing the user can do today. Avoid irreversible steps.
+- treatment_steps: 2 or 3 objects { title, timing, method, rationale, irreversible_warning }
+  Use gentle-first order. irreversible_warning is empty unless the step is hard to undo.
+- alternative_treatment_steps: 2 or 3 objects with the same shape, used if the first plan does not help. Do not simply repeat the first plan more strongly.
+
+Do not use the words: symptoms, prognosis, critical, patient, disease diagnosis as a medical verdict.
+Prefer plant language: what we noticed, likely issue, affected area, what to do next.
+
+Format: JSON only.
+''';
+
+  static Future<Plant?> identifyPlant(File image) async {
+    try {
+      if (!image.existsSync()) {
+        print('Identify error: image file missing at ${image.path}');
+        return null;
+      }
+      final bytes = await image.readAsBytes();
+      final content = await PlantAiClient.complete(
+        input: _identifyPrompt,
+        imageBytes: bytes,
       );
-
-      print("Status: ${response.statusCode}");
-      print("Body: ${response.body}");
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final content =
-            data['candidates']?[0]?['content']?['parts']?[0]?['text'];
-        print("Gemini content: $content");
-        if (content != null) {
-          final match = RegExp(r'\{.*\}', dotAll: true).firstMatch(content);
-          print("Match: ${match?.group(0)}");
-          if (match != null) {
-            final plantJson = jsonDecode(match.group(0)!);
-            return Plant.fromGemini(plantJson, image.path);
-          }
-        }
+      print('Plant AI identify content: $content');
+      final plantJson = PlantAiClient.extractJson(content);
+      if (plantJson != null) {
+        return Plant.fromGemini(plantJson, image.path);
       }
       return null;
     } catch (e) {
@@ -88,118 +81,26 @@ Format: JSON only. No extra explanation.
 
   static Future<Map<String, dynamic>?> diagnosePlantHealth(File image) async {
     try {
-      final bytes = await image.readAsBytes();
-      final base64Image = base64Encode(bytes);
-
-      final prompt = {
-        "contents": [
-          {
-            "parts": [
-              {
-                "text": """
-You are a plant health diagnosis expert.
-Analyze the attached plant image and provide a detailed health assessment in JSON format.
-
-Required fields:
-- plant_name: (Identify the plant if possible)
-- overall_health: (Healthy/Unhealthy/Critical - overall status)
-- health_score: (0-100, where 100 is perfectly healthy)
-- issues_detected: [
-    {
-      "type": "pest/disease/nutrient/environmental",
-      "name": "Specific issue name",
-      "severity": "low/medium/high",
-      "description": "Detailed description of the issue",
-      "symptoms": ["List of visible symptoms"]
-    }
-  ]
-- recommendations: [
-    {
-      "action": "What to do",
-      "priority": "immediate/high/medium/low",
-      "details": "Step-by-step instructions"
-    }
-  ]
-- preventive_care: {
-    "watering": "Watering advice",
-    "sunlight": "Light requirements",
-    "fertilization": "Fertilizer recommendations",
-    "general": "General care tips"
-  }
-- prognosis: (Expected recovery time and outcome)
-
-Format: JSON only. No extra explanation.
-""",
-              },
-              {
-                "inline_data": {"mime_type": "image/jpeg", "data": base64Image},
-              },
-            ],
-          },
-        ],
-      };
-
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode(prompt),
-      );
-
-      print("Diagnosis Status: ${response.statusCode}");
-      print("Diagnosis Body: ${response.body}");
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final content =
-            data['candidates']?[0]?['content']?['parts']?[0]?['text'];
-        print("Gemini diagnosis content: $content");
-        if (content != null) {
-          final match = RegExp(r'\{.*\}', dotAll: true).firstMatch(content);
-          print("Diagnosis Match: ${match?.group(0)}");
-          if (match != null) {
-            final diagnosisJson = jsonDecode(match.group(0)!);
-            return diagnosisJson;
-          }
-        }
+      if (!image.existsSync()) {
+        print('Diagnosis error: image file missing at ${image.path}');
+        return null;
       }
-      return null;
+      final bytes = await image.readAsBytes();
+      final content = await PlantAiClient.complete(
+        input: _diagnosePrompt,
+        imageBytes: bytes,
+      );
+      print('Plant AI diagnosis content: $content');
+      return PlantAiClient.extractJson(content);
     } catch (e) {
       print('Diagnosis Error: $e');
       return null;
     }
   }
 
-  /// Generate text content from Gemini
   Future<String> generateContent(String prompt) async {
     try {
-      final requestBody = {
-        "contents": [
-          {
-            "parts": [
-              {"text": prompt}
-            ]
-          }
-        ],
-        "generationConfig": {
-          "temperature": 0.7,
-          "maxOutputTokens": 1024,
-        }
-      };
-
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(requestBody),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final content = data['candidates']?[0]?['content']?['parts']?[0]?['text'];
-        if (content != null) {
-          return content.toString().trim();
-        }
-      }
-      throw Exception('Failed to generate content');
+      return (await PlantAiClient.complete(input: prompt)).trim();
     } catch (e) {
       print('Generate Content Error: $e');
       throw Exception('Unable to fetch plant information');

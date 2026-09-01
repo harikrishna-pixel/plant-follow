@@ -47,6 +47,15 @@ post_install do |installer|
       config.build_settings.delete('EXCLUDED_ARCHS')
       # Optional: speed up debug builds
       config.build_settings['ONLY_ACTIVE_ARCH'] = 'YES' if config.name == 'Debug'
+      # permission_handler: enable camera/photos so gallery upload works on iOS.
+      defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+      defs = [defs] unless defs.is_a?(Array)
+      defs += [
+        'PERMISSION_CAMERA=1',
+        'PERMISSION_PHOTOS=1',
+        'PERMISSION_PHOTOS_ADD_ONLY=1',
+      ]
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs.uniq
     end
   end
 end

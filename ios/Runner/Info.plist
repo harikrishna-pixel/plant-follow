@@ -32,6 +32,10 @@
 	<string>This app may access the microphone for camera use if required.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs access to your photo library to select plant photos for identification.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This app may save plant photos you capture for identification and care history.</string>
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>We use permissions to deliver ads that match your interests while supporting app improvements. Your privacy is protected, and the data is used only for personalized ads</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

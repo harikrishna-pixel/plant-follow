@@ -56,11 +56,7 @@ class FolderDetailScreen extends StatelessWidget {
           
           // Filter plants that are in this folder
           final plantsInFolder = allPlants.where((plant) {
-            final plantId = plant.uniqueId;
-            print('  Checking plant: ${plant.name} (ID: $plantId)');
-            final isMatch = currentFolder.plantIds.contains(plantId);
-            print('    Match: $isMatch');
-            return isMatch;
+            return currentFolder.containsPlant(plant);
           }).toList();
           
           print('  Plants found in folder: ${plantsInFolder.length}');
@@ -173,7 +169,7 @@ class FolderDetailScreen extends StatelessWidget {
   }
 
   Widget _buildPlantCard(BuildContext context, Plant plant, FolderProvider folderProvider, PlantFolder currentFolder) {
-    final plantId = plant.uniqueId;
+    final plantId = plant.id;
 
     return GestureDetector(
       onTap: () {
@@ -235,7 +231,7 @@ class FolderDetailScreen extends StatelessWidget {
                         print('  Plant: ${plant.name}');
                         print('  Plant ID: $plantId');
                         
-                        folderProvider.removePlantFromFolder(currentFolder.id, plantId);
+                        folderProvider.removePlantRecordFromFolder(currentFolder.id, plant);
                         
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(

@@ -13,6 +13,7 @@ import '../../../model/data_model/plant_history_model.dart';
 import '../../../provider/plant_history_provider.dart';
 import '../../../provider/plant_provider.dart';
 import '../../../model/data_model/plant_model.dart';
+import '../plant_context/plant_context_sheet.dart';
 
 class PlantHistoryDetailScreen extends StatelessWidget {
   final PlantHistory plantHistory;
@@ -332,7 +333,7 @@ class PlantHistoryDetailScreen extends StatelessWidget {
     );
   }
 
-  void _saveToFavorites(BuildContext context) {
+  Future<void> _saveToFavorites(BuildContext context) async {
     // Convert PlantHistory to Plant model
     final plant = Plant(
       name: plantHistory.plantName,
@@ -352,8 +353,9 @@ class PlantHistoryDetailScreen extends StatelessWidget {
     );
 
     final provider = Provider.of<PlantProvider>(context, listen: false);
-    final success = provider.saveFavorite(plant);
+    final success = await provider.saveFavorite(plant);
 
+    if (!context.mounted) return;
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -371,6 +373,7 @@ class PlantHistoryDetailScreen extends StatelessWidget {
           ),
         ),
       );
+      await showPlantContextSheet(context, plant: plant);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

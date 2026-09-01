@@ -1,4 +1,3 @@
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -8,31 +7,35 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:plantidentifier/services/weather_service.dart';
-import 'package:plantidentifier/view/screens/wallet/wallet_screen.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:plantidentifier/services/wallet_service.dart';
 import 'package:plantidentifier/services/auth_service.dart';
 import 'package:plantidentifier/services/plant_local.dart';
 import 'package:plantidentifier/model/data_model/user_wallet.dart';
 import 'package:plantidentifier/view/screens/auth/login_screen.dart';
-import 'package:plantidentifier/view/screens/privacy_and_terms/privacy.dart';
-import 'package:plantidentifier/view/screens/privacy_and_terms/restore_purchase.dart';
-import 'package:plantidentifier/view/screens/privacy_and_terms/review.dart';
-import 'package:plantidentifier/view/screens/privacy_and_terms/terms.dart';
 import 'package:plantidentifier/view/screens/purchase_paywall/paywall.dart';
 import 'package:plantidentifier/view/screens/scan_screen.dart';
-import 'package:plantidentifier/view/screens/search_plants/search_screens.dart';
 import 'package:plantidentifier/view/screens/weather/weather_screen.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:provider/provider.dart';
 
-import 'package:http/http.dart'as http;
+import 'package:http/http.dart' as http;
+import 'package:plantidentifier/model/data_model/plant_model.dart';
+import 'package:plantidentifier/model/data_model/recovery_models.dart';
+import 'package:plantidentifier/provider/plant_provider.dart';
+import 'package:plantidentifier/provider/recovery_provider.dart';
+import 'package:plantidentifier/provider/reminder_provider.dart';
+import 'package:plantidentifier/provider/care_rule_provider.dart';
+import 'package:plantidentifier/provider/location_provider.dart';
+import 'package:plantidentifier/provider/grow_plan_provider.dart';
+import 'package:plantidentifier/services/care_completion.dart';
+import 'package:plantidentifier/services/grow_logic.dart';
+import 'package:plantidentifier/services/today_priority.dart';
+import 'package:plantidentifier/view/screens/diagnosis/recovery_checkin_screen.dart';
+import 'package:plantidentifier/view/screens/today/today_feed.dart';
 import 'privacy_and_terms/faq.dart';
-import 'favourite_screen/favourite_screens.dart';
-import 'diagnosis/plant_diagnosis_screen.dart';
-import 'reminder/plant_reminder_screen.dart';
-import 'history/plant_history_screen.dart';
-import 'light_meter/light_meter_screen.dart';
+import 'favourite_screen/favourite_details.dart';
 import 'package:plantidentifier/mixpanel/mixpanel.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -43,7 +46,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-
   bool _isSubscribed = false;
   CustomerInfo? _customerInfo;
 
@@ -83,7 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Reload user data when screen becomes visible again (e.g., returning from Account screen)
     // Debounce to avoid excessive reloads (only reload if last refresh was more than 1 second ago)
     final now = DateTime.now();
-    if (_lastUserRefresh == null || 
+    if (_lastUserRefresh == null ||
         now.difference(_lastUserRefresh!).inSeconds > 1) {
       _lastUserRefresh = now;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -222,7 +224,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       textCapitalization: TextCapitalization.characters,
                       maxLength: 8,
                       inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'[A-Za-z0-9]'),
+                        ),
                         LengthLimitingTextInputFormatter(8),
                         TextInputFormatter.withFunction(
                           (oldValue, newValue) => TextEditingValue(
@@ -252,7 +256,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF1FAF3),
                         borderRadius: BorderRadius.circular(14),
@@ -296,9 +302,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                   child: Text(
                     'Skip for now',
-                    style: GoogleFonts.poppins(
-                      color: Colors.grey[700],
-                    ),
+                    style: GoogleFonts.poppins(color: Colors.grey[700]),
                   ),
                 ),
                 ElevatedButton(
@@ -326,17 +330,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           });
 
                           try {
-                            final applied =
-                                await WalletService.instance.applyReferralCode(
-                              referredUid: wallet.uid,
-                              referralCode: code,
-                            );
+                            final applied = await WalletService.instance
+                                .applyReferralCode(
+                                  referredUid: wallet.uid,
+                                  referralCode: code,
+                                );
                             if (!mounted) return;
 
                             if (applied) {
                               await prefs.setBool(promptKey, true);
-                              await WalletService.instance
-                                  .forceRefreshWallet(wallet.uid);
+                              await WalletService.instance.forceRefreshWallet(
+                                wallet.uid,
+                              );
                               Navigator.of(dialogContext).pop();
                               Fluttertoast.showToast(
                                 msg:
@@ -372,8 +377,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           width: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
                       : Text(
@@ -400,19 +406,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // Wait a moment before checking location
     await Future.delayed(const Duration(milliseconds: 500));
-    
+
     if (!mounted) return;
 
     // Now load weather which will request location permission if needed
     _loadWeather();
-    
+
     // After location permission, show welcome share popup with delay
     await Future.delayed(const Duration(milliseconds: 1000));
     if (mounted) {
       _checkAndShowWelcomeDialog();
     }
   }
-  
+
   /// Check and show welcome dialog after referral and location popups
   Future<void> _checkAndShowWelcomeDialog() async {
     final prefs = await SharedPreferences.getInstance();
@@ -425,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // 1. First time AND has scanned (existing logic), OR
     // 2. User is not signed in OR not subscribed (show for unsigned/unsubscribed users)
     final shouldShowForUnsigned = !isSignedIn || !_isSubscribed;
-    
+
     if (isFirstTime && mounted && (hasScanned || shouldShowForUnsigned)) {
       _showWelcomeDialog();
     }
@@ -441,14 +447,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _handleLogout() async {
     Navigator.pop(context);
 
-    final confirm = await showDialog<bool>(
+    final confirm =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: Text(
               'Log out?',
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.w600,
-              ),
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
             ),
             content: Text(
               'You will need to sign in again to access your wallet and scans.',
@@ -457,10 +462,7 @@ class _HomeScreenState extends State<HomeScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: Text(
-                  'Cancel',
-                  style: GoogleFonts.poppins(),
-                ),
+                child: Text('Cancel', style: GoogleFonts.poppins()),
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -486,9 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
     try {
@@ -539,7 +539,8 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final confirm = await showDialog<bool>(
+    final confirm =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: Text(
@@ -556,10 +557,7 @@ class _HomeScreenState extends State<HomeScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: Text(
-                  'Cancel',
-                  style: GoogleFonts.poppins(),
-                ),
+                child: Text('Cancel', style: GoogleFonts.poppins()),
               ),
               ElevatedButton(
                 onPressed: () => Navigator.of(dialogContext).pop(true),
@@ -585,9 +583,7 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      builder: (_) => const Center(child: CircularProgressIndicator()),
     );
 
     final uid = user.uid;
@@ -599,17 +595,17 @@ class _HomeScreenState extends State<HomeScreen> {
         // Automatically re-authenticate and retry deletion
         try {
           // Check provider before re-authenticating
-          final providerId = user.providerData.isNotEmpty 
-              ? user.providerData.first.providerId 
+          final providerId = user.providerData.isNotEmpty
+              ? user.providerData.first.providerId
               : null;
-          
+
           if (providerId == null) {
             throw Exception('No provider found for user');
           }
-          
+
           // Re-authenticate using the same provider
           await AuthService.instance.reauthenticateUser(user);
-          
+
           // Retry deletion after re-authentication
           final refreshedUser = FirebaseAuth.instance.currentUser;
           if (refreshedUser != null) {
@@ -622,21 +618,17 @@ class _HomeScreenState extends State<HomeScreen> {
             rootNavigator.pop();
           }
           if (!mounted) return;
-          
+
           // Show appropriate error message
           String errorMsg = 'Could not delete account. Please try again later.';
-          if (reauthError.toString().contains('cancel') || 
+          if (reauthError.toString().contains('cancel') ||
               reauthError.toString().contains('cancelled')) {
-            errorMsg = 'Account deletion cancelled. Please sign in again to delete your account.';
+            errorMsg =
+                'Account deletion cancelled. Please sign in again to delete your account.';
           }
-          
+
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                errorMsg,
-                style: GoogleFonts.inter(),
-              ),
-            ),
+            SnackBar(content: Text(errorMsg, style: GoogleFonts.inter())),
           );
           return;
         }
@@ -722,6 +714,17 @@ class _HomeScreenState extends State<HomeScreen> {
           _weatherData = weather;
           _isWeatherLoading = false;
         });
+        try {
+          final locations = context.read<LocationProvider>();
+          final home = locations.home;
+          if (home != null &&
+              (home.city == null || home.city!.trim().isEmpty) &&
+              weather.cityName.trim().isNotEmpty) {
+            await locations.updateLocation(
+              home.copyWith(city: weather.cityName),
+            );
+          }
+        } catch (_) {}
       }
     } catch (e) {
       print('Weather load error: $e');
@@ -813,10 +816,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 8),
             Text(
               'You\'re enjoying PlantFollow Pro',
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
+              style: GoogleFonts.inter(fontSize: 14, color: Colors.grey[600]),
             ),
             const SizedBox(height: 32),
 
@@ -844,8 +844,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     Icons.calendar_today_rounded,
                     'Started On',
                     originalPurchaseDate != null
-                        ? DateFormat('MMM dd, yyyy').format(
-                        DateTime.parse(originalPurchaseDate))
+                        ? DateFormat(
+                            'MMM dd, yyyy',
+                          ).format(DateTime.parse(originalPurchaseDate))
                         : 'N/A',
                   ),
                   const SizedBox(height: 16),
@@ -857,8 +858,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     Icons.event_rounded,
                     'Expires On',
                     expirationDate != null
-                        ? DateFormat('MMM dd, yyyy').format(
-                        DateTime.parse(expirationDate))
+                        ? DateFormat(
+                            'MMM dd, yyyy',
+                          ).format(DateTime.parse(expirationDate))
                         : 'Never',
                   ),
                   const SizedBox(height: 16),
@@ -906,11 +908,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-
     );
   }
-
-
 
   /// Check the Internet Connection //
   Future<bool> _hasInternet() async {
@@ -924,8 +923,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _buildDetailRow(IconData icon, String label, String value,
-      {bool isHighlight = false}) {
+  Widget _buildDetailRow(
+    IconData icon,
+    String label,
+    String value, {
+    bool isHighlight = false,
+  }) {
     return Row(
       children: [
         Container(
@@ -949,10 +952,7 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Text(
                 label,
-                style: GoogleFonts.inter(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
+                style: GoogleFonts.inter(fontSize: 12, color: Colors.grey[600]),
               ),
               const SizedBox(height: 4),
               Text(
@@ -1000,12 +1000,132 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  TodayPriorityResult _resolveToday({
+    required RecoveryProvider recovery,
+    required ReminderProvider reminders,
+    required PlantProvider plants,
+    required CareRuleProvider careRules,
+    required GrowPlanProvider growPlans,
+  }) {
+    final plantNames = <String, String>{
+      for (final plant in plants.favorites) plant.id: plant.name,
+    };
+    final diagnosisSummaries = <String, String>{};
+    for (final recoveryCase in recovery.cases) {
+      final diagnosis = recovery.diagnosisById(recoveryCase.diagnosisId);
+      final name = diagnosis?.primaryIssue.name.trim() ?? '';
+      if (name.isNotEmpty) {
+        diagnosisSummaries[recoveryCase.diagnosisId] = name;
+      }
+    }
+    List<TodayMilestoneCandidate> milestones = const [];
+    try {
+      milestones = TodayPriorityResolver.milestonesFromEvents(
+        events: LocalStorageService.getAllPlantEvents(),
+        now: DateTime.now(),
+        plantNames: plantNames,
+      );
+    } catch (_) {
+      milestones = const [];
+    }
+    return TodayPriorityResolver.resolve(
+      now: DateTime.now(),
+      cases: recovery.cases,
+      plantNames: plantNames,
+      diagnosisSummaries: diagnosisSummaries,
+      reminders: reminders.reminders,
+      careRules: careRules.rules,
+      weather: _weatherData == null
+          ? null
+          : TodayWeatherSnapshot(
+              temperatureC: _weatherData!.temperature,
+              description: _weatherData!.description,
+            ),
+      milestones: milestones,
+      growActions: GrowLogic.dueActions(
+        now: DateTime.now(),
+        plants: plants.favorites,
+        plans: growPlans.plans,
+        harvests: growPlans.harvests,
+      ),
+      plantWeatherContexts: plants.favorites.map((plant) => plant.placement),
+    );
+  }
+
+  Future<void> _onTodayAction(
+    TodayAction action, {
+    required RecoveryProvider recovery,
+    required ReminderProvider reminders,
+    required PlantProvider plants,
+    required CareRuleProvider careRules,
+  }) async {
+    switch (action.kind) {
+      case TodayActionKind.recovery:
+        final plant = _plantById(plants, action.plantId);
+        RecoveryCase? recoveryCase;
+        for (final item in recovery.cases) {
+          if (item.id == action.recoveryCaseId) {
+            recoveryCase = item;
+            break;
+          }
+        }
+        if (plant == null ||
+            recoveryCase == null ||
+            action.checkInStage == null) {
+          return;
+        }
+        await Get.to(
+          () => RecoveryCheckInScreen(
+            recoveryCase: recoveryCase!,
+            plant: plant,
+            stage: action.checkInStage!,
+          ),
+        );
+        return;
+      case TodayActionKind.care:
+        if (action.careRuleId != null) {
+          final rule = careRules.byId(action.careRuleId);
+          if (rule != null) {
+            await CareCompletion.complete(
+              rule: rule,
+              careRules: careRules,
+              reminders: reminders,
+            );
+            return;
+          }
+        }
+        if (action.reminderId != null) {
+          await reminders.toggleReminderCompletion(action.reminderId!);
+        }
+        return;
+      case TodayActionKind.weather:
+        await Get.to(() => const WeatherWidget());
+        return;
+      case TodayActionKind.milestone:
+      case TodayActionKind.grow:
+        final plant = _plantById(plants, action.plantId);
+        if (plant != null) {
+          await Get.to(() => FavoriteDetailScreen(plant: plant));
+        }
+        return;
+    }
+  }
+
+  Plant? _plantById(PlantProvider plants, String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final plant in plants.favorites) {
+      if (plant.id == id || plant.matchesStoredId(id)) return plant;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final displayName = user?.displayName?.trim();
-    final friendlyName =
-        (displayName != null && displayName.isNotEmpty) ? displayName : 'Plant Lover';
+    final friendlyName = (displayName != null && displayName.isNotEmpty)
+        ? displayName
+        : 'Plant Lover';
     final greeting = _getTimeBasedGreeting();
 
     return Scaffold(
@@ -1063,155 +1183,145 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: _isWeatherLoading && _weatherData == null
                   ? SizedBox(
-                width: 18.w,
-                height: 18.h,
-                child: const CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2E7D32)),
-                ),
-              )
+                      width: 18.w,
+                      height: 18.h,
+                      child: const CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFF2E7D32),
+                        ),
+                      ),
+                    )
                   : _weatherData != null
                   ? Row(
-                children: [
-                  // Weather icon
-                  Image.network(
-                    _weatherData!.getIconUrl(),
-                    width: 22.w,
-                    height: 22.h,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return Icon(
-                        Icons.cloud,
-                        size: 18.sp,
-                        color: const Color(0xFF2E7D32),
-                      );
-                    },
-                    errorBuilder: (context, error, stackTrace) {
-                      return Icon(
-                        Icons.cloud,
-                        size: 18.sp,
-                        color: const Color(0xFF2E7D32),
-                      );
-                    },
-                  ),
-                  SizedBox(width: 4.w),
-                  // Temperature
-                  Text(
-                    '${_weatherData!.temperature.round()}°',
-                    style: GoogleFonts.inter(
-                      fontSize: 14.sp,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF2E7D32),
-                    ),
-                  ),
-                ],
-              )
-                  : Icon(
-                Icons.cloud_off,
-                size: 18.sp,
-                color: Colors.grey,
-              ),
+                      children: [
+                        // Weather icon
+                        Image.network(
+                          _weatherData!.getIconUrl(),
+                          width: 22.w,
+                          height: 22.h,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Icon(
+                              Icons.cloud,
+                              size: 18.sp,
+                              color: const Color(0xFF2E7D32),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return Icon(
+                              Icons.cloud,
+                              size: 18.sp,
+                              color: const Color(0xFF2E7D32),
+                            );
+                          },
+                        ),
+                        SizedBox(width: 4.w),
+                        // Temperature
+                        Text(
+                          '${_weatherData!.temperature.round()}°',
+                          style: GoogleFonts.inter(
+                            fontSize: 14.sp,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF2E7D32),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Icon(Icons.cloud_off, size: 18.sp, color: Colors.grey),
             ),
           ),
           Container(
             margin: EdgeInsets.only(right: 12.w, top: 6.h, bottom: 6.h),
             child: _isSubscribed
                 ? Container(
-              decoration: BoxDecoration(
-                color: Colors.green,
-                borderRadius: BorderRadius.circular(12.r),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.green.withOpacity(0.3),
-                    blurRadius: 4,
-                  ),
-                ],
-              ),
-              child: IconButton(
-                icon: Icon(
-                  Icons.info,
-                  color: Colors.white,
-                  size: 18.sp,
-                ),
-                onPressed: (){
-                  Get.to(LocalHtmlScreen());
-                },
-              ),
-            )
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(12.r),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.green.withOpacity(0.3),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: IconButton(
+                      icon: Icon(Icons.info, color: Colors.white, size: 18.sp),
+                      onPressed: () {
+                        Get.to(LocalHtmlScreen());
+                      },
+                    ),
+                  )
                 : Builder(
-                builder: (context) {
-                  // Get screen width for responsive sizing
-                  final screenWidth = MediaQuery.of(context).size.width;
-                  final isTablet = screenWidth > 600;
+                    builder: (context) {
+                      // Get screen width for responsive sizing
+                      final screenWidth = MediaQuery.of(context).size.width;
+                      final isTablet = screenWidth > 600;
 
-                  return ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF6B35),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(isTablet ? 24 : 20.r),
-                      ),
-                      elevation: 2,
-                      padding: EdgeInsets.symmetric(
-                          horizontal: isTablet ? 18 : 14.w,
-                          vertical: isTablet ? 10 : 8.h
-                      ),
-                      minimumSize: Size(isTablet ? 80 : 60.w, isTablet ? 40 : 32.h),
-                    ),
-                    icon: Icon(Icons.star, size: isTablet ? 20 : 16.sp),
-                    label: Text(
-                      'Pro',
-                      style: GoogleFonts.inter(
-                        fontSize: isTablet ? 16 : 13.sp,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    onPressed: () async {
-                      if (_isOpeningPaywall) return;
-                      setState(() {
-                        _isOpeningPaywall = true;
-                      });
-                      try {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const PayWallScreen()),
-                        );
-                      } finally {
-                        if (mounted) {
+                      return ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B35),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              isTablet ? 24 : 20.r,
+                            ),
+                          ),
+                          elevation: 2,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isTablet ? 18 : 14.w,
+                            vertical: isTablet ? 10 : 8.h,
+                          ),
+                          minimumSize: Size(
+                            isTablet ? 80 : 60.w,
+                            isTablet ? 40 : 32.h,
+                          ),
+                        ),
+                        icon: Icon(Icons.star, size: isTablet ? 20 : 16.sp),
+                        label: Text(
+                          'Pro',
+                          style: GoogleFonts.inter(
+                            fontSize: isTablet ? 16 : 13.sp,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        onPressed: () async {
+                          if (_isOpeningPaywall) return;
                           setState(() {
-                            _isOpeningPaywall = false;
+                            _isOpeningPaywall = true;
                           });
-                        }
-                      }
+                          try {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const PayWallScreen(),
+                              ),
+                            );
+                          } finally {
+                            if (mounted) {
+                              setState(() {
+                                _isOpeningPaywall = false;
+                              });
+                            }
+                          }
+                        },
+                      );
                     },
-                  );
-                }
-            ),
+                  ),
           ),
         ],
       ),
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Welcome Section
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 20.h),
+            Padding(
+              padding: EdgeInsets.fromLTRB(24.w, 8.h, 24.w, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Text(
-                  //   '$greeting, $friendlyName 👋',
-                  //   style: GoogleFonts.poppins(
-                  //     fontSize: 18.sp,
-                  //     fontWeight: FontWeight.w600,
-                  //     color: const Color(0xFF1B5E20),
-                  //   ),
-                  // ),
-                  SizedBox(height: 8.h),
                   Text(
-                    'Discover Your Plants',
+                    'Today',
                     style: GoogleFonts.poppins(
                       fontSize: 26.sp,
                       fontWeight: FontWeight.bold,
@@ -1220,598 +1330,57 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   SizedBox(height: 6.h),
                   Text(
-                    'Identify, learn, and care for your green companions',
+                    'What needs a look right now.',
                     style: GoogleFonts.inter(
                       fontSize: 14.sp,
                       color: Colors.grey[600],
                       height: 1.4,
                     ),
                   ),
-                ],
-              ),
-            ),
-
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24.w),
-              child: GestureDetector(
-                onTap: () => Get.to(() => const SearchScreens()),
-                child: Container(
-                  padding:
-                  EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16.r),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.08),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                    border: Border.all(
-                      color: Colors.grey.withOpacity(0.12),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.search_rounded,
-                        color: Colors.grey[600],
-                        size: 22.sp,
-                      ),
-                      SizedBox(width: 12.w),
-                      Expanded(
-                        child: Text(
-                          'Search plants, trees...',
-                          style: GoogleFonts.inter(
-                            fontSize: 14.sp,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            SizedBox(height: 20.h),
-
-            // Features Section
-            // Features Section
-            Container(
-              margin: EdgeInsets.symmetric(horizontal: 24.w, vertical: 16.h),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Features',
-                    style: GoogleFonts.poppins(
-                      fontSize: 22.sp,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF1B5E20),
-                    ),
-                  ),
-                  SizedBox(height: 16.h),
-
-                  // First Row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            Get.to(() => const PlantDiagnosisScreen());
-                          },
-                          child: _buildFeatureCard(
-                            Icons.health_and_safety_rounded,
-                            'Diagnosis',
-                            'Health check & care',
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: 10.w),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            Get.to(() => const LightMeterScreen());
-                          },
-                          child: _buildFeatureCard(
-                            Icons.wb_sunny_rounded,
-                            'Light Meter',
-                            'Measure sunlight',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 10.h),
-
-                  // Second Row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const PlantReminderScreen(),
-                              ),
-                            );
-                          },
-                          child: _buildFeatureCard(
-                            Icons.water_drop_rounded,
-                            'Reminder',
-                            'Stay on schedule',
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: 10.w),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            Get.to(() => const PlantHistoryScreen());
-                          },
-                          child: _buildFeatureCard(
-                            Icons.history_rounded,
-                            'Scan History',
-                            'Track your journey',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 10.h),
-
-                  // Third Row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            Get.to(() => const FavoritesScreen());
-                          },
-                          child: _buildFeatureCard(
-                            Icons.favorite_rounded,
-                             'Favourites',
-                            'Save your collection',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Gardening Tips Section
-            Container(
-              margin: EdgeInsets.symmetric(horizontal: 24.w, vertical: 12.h),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Gardening Tips',
-                    style: GoogleFonts.poppins(
-                      fontSize: 22.sp,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF1B5E20),
-                    ),
-                  ),
-                  SizedBox(height: 16.h),
-                  _buildTipCard(
-                    'https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?w=400',
-                    'Watering Wisdom',
-                    'Water early morning or evening. Check soil moisture to avoid overwatering.',
-                    Icons.water_drop_rounded,
-                    'Water your plants early in the morning or late in the evening when temperatures are cooler. This helps prevent water evaporation and ensures your plants get the most benefit. Always check the soil moisture before watering - stick your finger about an inch into the soil. If it feels dry, it\'s time to water. Overwatering can lead to root rot, so make sure your pots have proper drainage.',
-                  ),
-                  SizedBox(height: 12.h),
-                  _buildTipCard(
-                    'https://images.unsplash.com/photo-1490750967868-88aa4486c946?w=400',
-                    'Sunlight Secrets',
-                    'Most plants need 6-8 hours of sunlight daily. Watch leaf color changes.',
-                    Icons.wb_sunny_rounded,
-                    'Most houseplants need 6-8 hours of indirect sunlight daily to thrive. Place them near east or west-facing windows for optimal light. Watch for signs of too much or too little light: yellowing leaves often indicate too much direct sun, while leggy growth and small leaves suggest insufficient light. Rotate your plants weekly to ensure even growth on all sides.',
-                  ),
-                  SizedBox(height: 12.h),
-                  _buildTipCard(
-                    'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400',
-                    'Healthy Soil',
-                    'Ensure good drainage. Add compost monthly for thriving plants.',
-                    Icons.eco_rounded,
-                    'Healthy soil is the foundation of a thriving garden. Ensure your pots have drainage holes to prevent waterlogging. Use well-draining potting mix that\'s appropriate for your plant type. Add organic compost or fertilizer monthly during the growing season to replenish nutrients. Check soil pH regularly - most plants prefer slightly acidic to neutral soil (pH 6.0-7.0).',
-                  ),
                   SizedBox(height: 20.h),
-                ],
-              ),
-            ),
-
-            // Bottom padding to prevent bottom bar overlap and FAB covering content
-            SizedBox(height: 100.h),
-
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTipCard(String imageUrl, String title, String description, IconData icon, String fullContent) {
-    // Get screen width to determine device type
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth > 600; // iPad and tablets
-
-    return InkWell(
-      onTap: () => _showTipDialog(imageUrl, title, fullContent, icon),
-      borderRadius: BorderRadius.circular(isTablet ? 20 : 16.r),
-      child: Container(
-        padding: EdgeInsets.all(isTablet ? 16 : 12.w),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(isTablet ? 20 : 16.r),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-          border: Border.all(color: Colors.grey.withOpacity(0.1)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Image
-            ClipRRect(
-              borderRadius: BorderRadius.circular(isTablet ? 16 : 12.r),
-              child: Container(
-                width: isTablet ? 80 : 60.w,
-                height: isTablet ? 80 : 60.w,
-                color: const Color(0xFFE8F5E9),
-                child: Image.network(
-                  imageUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: const Color(0xFFE8F5E9),
-                      child: Icon(
-                        icon,
-                        color: const Color(0xFF4CAF50),
-                        size: isTablet ? 36 : 28.sp,
-                      ),
-                    );
-                  },
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return Container(
-                      color: const Color(0xFFE8F5E9),
-                      child: Center(
-                        child: SizedBox(
-                          width: isTablet ? 24 : 20.w,
-                          height: isTablet ? 24 : 20.w,
-                          child: CircularProgressIndicator(
-                            value: loadingProgress.expectedTotalBytes != null
-                                ? loadingProgress.cumulativeBytesLoaded /
-                                loadingProgress.expectedTotalBytes!
-                                : null,
-                            strokeWidth: 2,
-                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF4CAF50)),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-            SizedBox(width: isTablet ? 16 : 12.w),
-            // Text Content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.poppins(
-                      fontSize: isTablet ? 17 : 14.sp,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF1B5E20),
-                    ),
-                  ),
-                  SizedBox(height: isTablet ? 6 : 4.h),
-                  Text(
-                    description,
-                    style: GoogleFonts.inter(
-                      fontSize: isTablet ? 14 : 11.sp,
-                      color: Colors.grey[600],
-                      height: 1.3,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showTipDialog(String imageUrl, String title, String content, IconData icon) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth > 600;
-
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Image Section
-              ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(24),
-                  topRight: Radius.circular(24),
-                ),
-                child: Container(
-                  width: double.infinity,
-                  height: isTablet ? 250 : 200,
-                  color: const Color(0xFFE8F5E9),
-                  child: Image.network(
-                    imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: const Color(0xFFE8F5E9),
-                        child: Center(
-                          child: Icon(
-                            icon,
-                            color: const Color(0xFF4CAF50),
-                            size: isTablet ? 80 : 60,
-                          ),
-                        ),
-                      );
-                    },
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return Container(
-                        color: const Color(0xFFE8F5E9),
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            value: loadingProgress.expectedTotalBytes != null
-                                ? loadingProgress.cumulativeBytesLoaded /
-                                loadingProgress.expectedTotalBytes!
-                                : null,
-                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF4CAF50)),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              // Content Section
-              Padding(
-                padding: EdgeInsets.all(isTablet ? 24 : 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: GoogleFonts.poppins(
-                        fontSize: isTablet ? 24 : 20.sp,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1B5E20),
-                      ),
-                    ),
-                    SizedBox(height: isTablet ? 16 : 12.h),
-                    Text(
-                      content,
-                      style: GoogleFonts.inter(
-                        fontSize: isTablet ? 16 : 14.sp,
-                        color: Colors.grey[700],
-                        height: 1.6,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Action Buttons
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  isTablet ? 24 : 20,
-                  0,
-                  isTablet ? 24 : 20,
-                  isTablet ? 24 : 20,
-                ),
-                child: Row(
-                  children: [
-                    // Share Button
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          padding: EdgeInsets.symmetric(vertical: isTablet ? 16 : 14.h),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          side: const BorderSide(
-                            color: Color(0xFF4CAF50),
-                            width: 1.5,
-                          ),
-                        ),
-                        icon: const Icon(
-                          Icons.share_rounded,
-                          color: Color(0xFF4CAF50),
-                          size: 18,
-                        ),
-                        label: Text(
-                          'Share',
-                          style: GoogleFonts.poppins(
-                            color: const Color(0xFF4CAF50),
-                            fontWeight: FontWeight.w600,
-                            fontSize: isTablet ? 16 : 14.sp,
-                          ),
-                        ),
-                        onPressed: () async {
-                          const appStoreLink = 'https://apps.apple.com/app/id/6752886333';
-                          final shareMessage = '''$title
-
-$content
-
-🌿 Discover more plant care tips with PlantFollow & Care!
-Download now: $appStoreLink''';
-                          
-                          // Get screen size for share position origin (required for iOS)
-                          final box = context.findRenderObject() as RenderBox?;
-                          final sharePositionOrigin = box != null 
-                              ? box.localToGlobal(Offset.zero) & box.size
-                              : null;
-                          
-                          await Share.share(
-                            shareMessage,
-                            sharePositionOrigin: sharePositionOrigin,
+                  Consumer5<
+                    RecoveryProvider,
+                    ReminderProvider,
+                    PlantProvider,
+                    CareRuleProvider,
+                    GrowPlanProvider
+                  >(
+                    builder:
+                        (
+                          context,
+                          recovery,
+                          reminders,
+                          plants,
+                          careRules,
+                          growPlans,
+                          _,
+                        ) {
+                          final result = _resolveToday(
+                            recovery: recovery,
+                            reminders: reminders,
+                            plants: plants,
+                            careRules: careRules,
+                            growPlans: growPlans,
+                          );
+                          return TodayFeed(
+                            actions: result.cards,
+                            onPrimaryAction: (action) => _onTodayAction(
+                              action,
+                              recovery: recovery,
+                              reminders: reminders,
+                              plants: plants,
+                              careRules: careRules,
+                            ),
                           );
                         },
-                      ),
-                    ),
-                    SizedBox(width: isTablet ? 12 : 10.w),
-                    // Got it Button
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF4CAF50),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          padding: EdgeInsets.symmetric(vertical: isTablet ? 16 : 14.h),
-                          elevation: 0,
-                        ),
-                        onPressed: () => Navigator.pop(context),
-                        child: Text(
-                          'Got it',
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: isTablet ? 16 : 14.sp,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            SizedBox(height: 100.h),
+          ],
         ),
       ),
-    );
-  }
-
-  Widget _buildFeatureCard(IconData icon, String title, String description) {
-    // Get screen width to determine device type
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth > 600; // iPad and tablets
-
-    return Container(
-      height: isTablet ? 160 : 140.h,
-      constraints: BoxConstraints(
-        minHeight: isTablet ? 160 : 140.h,
-        maxHeight: isTablet ? 180 : 160.h,
-      ),
-      padding: EdgeInsets.symmetric(
-          horizontal: isTablet ? 16 : 12.w,
-          vertical: isTablet ? 18 : 14.h
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(isTablet ? 20 : 16.r),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Icon container with responsive size
-          Container(
-            padding: EdgeInsets.all(isTablet ? 14 : 10.w),
-            decoration: BoxDecoration(
-              color: const Color(0xFF4CAF50).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(isTablet ? 16 : 12.r),
-            ),
-            child: Icon(
-              icon,
-              color: const Color(0xFF4CAF50),
-              size: isTablet ? 32 : 26.sp,
-            ),
-          ),
-          SizedBox(height: isTablet ? 12 : 10.h),
-          // Title with flexible sizing
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.poppins(
-              fontSize: isTablet ? 16 : 13.sp,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF2E7D32),
-              height: 1.2,
-            ),
-
-          ),
-          SizedBox(height: isTablet ? 6 : 4.h),
-          // Description
-          Text(
-            description,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              fontSize: isTablet ? 13 : 10.sp,
-              color: Colors.grey[600],
-              height: 1.2,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String number, String label) {
-    return Column(
-      children: [
-        Text(
-          number,
-          style: GoogleFonts.poppins(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF4CAF50),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey[600]),
-        ),
-      ],
     );
   }
 }
@@ -1830,7 +1399,8 @@ class _WelcomeDialogState extends State<_WelcomeDialog> {
   Future<void> _handleShare() async {
     const appStoreLink = 'https://apps.apple.com/app/id/6752886333';
 
-    final shareMessage = '''
+    final shareMessage =
+        '''
 🌿 Hey, plant lover! 💚
 
 I just found the cutest little helper for my plants and thought to share it with you! It's called Plant Identifier & Care, and honestly… it feels like having a plant expert in your pocket.
@@ -1850,14 +1420,11 @@ $appStoreLink
 
     // Get screen size for share position origin (required for iOS, especially iPads)
     final box = context.findRenderObject() as RenderBox?;
-    final sharePositionOrigin = box != null 
+    final sharePositionOrigin = box != null
         ? box.localToGlobal(Offset.zero) & box.size
         : null;
 
-    await Share.share(
-      shareMessage,
-      sharePositionOrigin: sharePositionOrigin,
-    );
+    await Share.share(shareMessage, sharePositionOrigin: sharePositionOrigin);
 
     // Mark as shared and update UI
     setState(() {
@@ -1871,13 +1438,16 @@ $appStoreLink
         // The actual check happens in tryGrantWelcomeShareReward using Firestore
         // This local check is just to avoid unnecessary calls
         final prefs = await SharedPreferences.getInstance();
-        final welcomeBonusClaimed = prefs.getBool('welcome_bonus_claimed') ?? false;
-        
+        final welcomeBonusClaimed =
+            prefs.getBool('welcome_bonus_claimed') ?? false;
+
         bool granted;
         if (!welcomeBonusClaimed) {
           // First time welcome share - grant 3 scans (300 coins)
           // This method has its own check in Firestore to prevent duplicate grants
-          granted = await WalletService.instance.tryGrantWelcomeShareReward(user.uid);
+          granted = await WalletService.instance.tryGrantWelcomeShareReward(
+            user.uid,
+          );
           if (granted) {
             // Only set local flag if actually granted
             await prefs.setBool('welcome_bonus_claimed', true);
@@ -1886,14 +1456,12 @@ $appStoreLink
           // Regular share - use normal share reward logic (20 coins)
           granted = await WalletService.instance.tryGrantShareReward(user.uid);
         }
-        
+
         if (granted) {
-          final wallet =
-              await WalletService.instance.forceRefreshWallet(user.uid);
-          await prefs.setInt(
-            'free_scans_remaining',
-            wallet.availableScans,
+          final wallet = await WalletService.instance.forceRefreshWallet(
+            user.uid,
           );
+          await prefs.setInt('free_scans_remaining', wallet.availableScans);
           if (mounted) {
             String message;
             if (!welcomeBonusClaimed) {
@@ -1903,27 +1471,37 @@ $appStoreLink
               // Regular share reward
               final shareCoins = wallet.shareCoins;
               final coinEarningSharesToday = wallet.coinEarningSharesToday;
-              final remainingSharesForCoins = UserWallet.maxCoinEarningSharesPerDay - coinEarningSharesToday;
-              
+              final remainingSharesForCoins =
+                  UserWallet.maxCoinEarningSharesPerDay -
+                  coinEarningSharesToday;
+
               if (remainingSharesForCoins <= 0) {
-                message = "✅ Share recorded! You've reached today's limit (3 shares). Share again tomorrow to earn more coins!";
+                message =
+                    "✅ Share recorded! You've reached today's limit (3 shares). Share again tomorrow to earn more coins!";
               } else {
                 final coinsNeeded = 100 - shareCoins;
                 final sharesNeeded = (coinsNeeded / 20).ceil();
-                
+
                 if (shareCoins >= 100) {
-                  message = "🎉 +1 scan unlocked! You earned 100 coins from sharing!";
+                  message =
+                      "🎉 +1 scan unlocked! You earned 100 coins from sharing!";
                 } else {
-                  message = "🎁 +20 coins earned! ($shareCoins/100 coins) $remainingSharesForCoins share${remainingSharesForCoins > 1 ? 's' : ''} left today to earn coins!";
+                  message =
+                      "🎁 +20 coins earned! ($shareCoins/100 coins) $remainingSharesForCoins share${remainingSharesForCoins > 1 ? 's' : ''} left today to earn coins!";
                 }
               }
             }
-            
+
             Fluttertoast.showToast(
               msg: message,
               toastLength: Toast.LENGTH_LONG,
               timeInSecForIosWeb: 4,
-              backgroundColor: !welcomeBonusClaimed ? const Color(0xFF388E3C) : (wallet.coinEarningSharesToday >= UserWallet.maxCoinEarningSharesPerDay ? Colors.orange : const Color(0xFF388E3C)),
+              backgroundColor: !welcomeBonusClaimed
+                  ? const Color(0xFF388E3C)
+                  : (wallet.coinEarningSharesToday >=
+                            UserWallet.maxCoinEarningSharesPerDay
+                        ? Colors.orange
+                        : const Color(0xFF388E3C)),
             );
           }
         } else {
@@ -1955,18 +1533,12 @@ $appStoreLink
       backgroundColor: Colors.transparent,
       child: Container(
         margin: EdgeInsets.symmetric(horizontal: 12.w),
-        constraints: BoxConstraints(
-          maxWidth: 420.w,
-        ),
+        constraints: BoxConstraints(maxWidth: 420.w),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFFFFBF5),
-              Color(0xFFF0F9F4),
-              Color(0xFFE8F5E9),
-            ],
+            colors: [Color(0xFFFFFBF5), Color(0xFFF0F9F4), Color(0xFFE8F5E9)],
           ),
           borderRadius: BorderRadius.circular(32.r),
           boxShadow: [
@@ -1982,10 +1554,7 @@ $appStoreLink
               offset: const Offset(0, 8),
             ),
           ],
-          border: Border.all(
-            color: Colors.white.withOpacity(0.8),
-            width: 2,
-          ),
+          border: Border.all(color: Colors.white.withOpacity(0.8), width: 2),
         ),
         child: Stack(
           clipBehavior: Clip.none,
@@ -2127,7 +1696,9 @@ $appStoreLink
                             ),
                           ),
                           child: Icon(
-                            _hasShared ? Icons.check_circle_rounded : Icons.card_giftcard_rounded,
+                            _hasShared
+                                ? Icons.check_circle_rounded
+                                : Icons.card_giftcard_rounded,
                             size: 36.sp,
                             color: Colors.white,
                           ),
@@ -2166,7 +1737,10 @@ $appStoreLink
 
                   // Subtitle with better styling
                   Container(
-                    padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 7.h),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 14.w,
+                      vertical: 7.h,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.7),
                       borderRadius: BorderRadius.circular(18.r),
@@ -2221,11 +1795,12 @@ $appStoreLink
                       child: InkWell(
                         onTap: _hasShared
                             ? () async {
-                          final prefs = await SharedPreferences.getInstance();
-                          await prefs.setBool('first_time_home', false);
-                          Navigator.pop(context);
-                          Get.to(() => const ScanScreen());
-                        }
+                                final prefs =
+                                    await SharedPreferences.getInstance();
+                                await prefs.setBool('first_time_home', false);
+                                Navigator.pop(context);
+                                Get.to(() => const ScanScreen());
+                              }
                             : _handleShare,
                         borderRadius: BorderRadius.circular(26.r),
                         child: Container(
@@ -2247,7 +1822,9 @@ $appStoreLink
                                     shape: BoxShape.circle,
                                   ),
                                   child: Icon(
-                                    _hasShared ? Icons.camera_alt_rounded : Icons.share_rounded,
+                                    _hasShared
+                                        ? Icons.camera_alt_rounded
+                                        : Icons.share_rounded,
                                     color: Colors.white,
                                     size: 19.sp,
                                   ),

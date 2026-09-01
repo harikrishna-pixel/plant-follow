@@ -2,9 +2,10 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:plantidentifier/services/picked_media.dart';
+import 'package:plantidentifier/services/plant_ai_client.dart';
 
 class PlantChatScreen extends StatefulWidget {
   const PlantChatScreen({super.key});
@@ -15,9 +16,6 @@ class PlantChatScreen extends StatefulWidget {
 
 class _PlantChatScreenState extends State<PlantChatScreen>
     with TickerProviderStateMixin {
-  static const String _endpoint =
-      'https://combine-api-ruby.vercel.app/api/chat';
-
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
@@ -71,39 +69,46 @@ class _PlantChatScreenState extends State<PlantChatScreen>
       _chatHistories.clear();
       for (var json in historyJson) {
         final data = jsonDecode(json);
-        _chatHistories.add(ChatHistory(
-          chatId: data['chatId'] ?? '',
-          question: data['question'],
-          answer: data['answer'],
-          timestamp: DateTime.parse(data['timestamp']),
-        ));
+        _chatHistories.add(
+          ChatHistory(
+            chatId: data['chatId'] ?? '',
+            question: data['question'],
+            answer: data['answer'],
+            timestamp: DateTime.parse(data['timestamp']),
+          ),
+        );
       }
     });
   }
 
   Future<void> _saveChatHistory(String question, String answer) async {
     final history = ChatHistory(
-      chatId: _currentChatId ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      chatId:
+          _currentChatId ?? DateTime.now().millisecondsSinceEpoch.toString(),
       question: question,
       answer: answer,
       timestamp: DateTime.now(),
     );
-    
+
     _chatHistories.insert(0, history);
-    
+
     // Keep only last 50 messages (to preserve multiple chats)
     if (_chatHistories.length > 50) {
       _chatHistories.removeRange(50, _chatHistories.length);
     }
-    
+
     final prefs = await SharedPreferences.getInstance();
-    final historyJson = _chatHistories.map((h) => jsonEncode({
-      'chatId': h.chatId,
-      'question': h.question,
-      'answer': h.answer,
-      'timestamp': h.timestamp.toIso8601String(),
-    })).toList();
-    
+    final historyJson = _chatHistories
+        .map(
+          (h) => jsonEncode({
+            'chatId': h.chatId,
+            'question': h.question,
+            'answer': h.answer,
+            'timestamp': h.timestamp.toIso8601String(),
+          }),
+        )
+        .toList();
+
     await prefs.setStringList('chat_history', historyJson);
   }
 
@@ -157,27 +162,14 @@ class _PlantChatScreenState extends State<PlantChatScreen>
     setState(() => _isLoading = true);
 
     try {
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'input':
-              'You are an expert botanist. Answer this plant question: $text',
-        }),
+      final reply = await PlantAiClient.complete(
+        input:
+            'You are an expert botanist. Answer this plant question: $text',
       );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final reply = data['output'];
-        final cleanedReply = _cleanMarkdown(reply); // Remove asterisks and markdown
-        _addBotMessage(cleanedReply);
-        _generateRandomQuestions();
-        
-        // Save to history
-        await _saveChatHistory(userQuestion, cleanedReply);
-      } else {
-        _addBotMessage('Sorry, I couldn\'t process that. Please try again.');
-      }
+      final cleanedReply = _cleanMarkdown(reply);
+      _addBotMessage(cleanedReply);
+      _generateRandomQuestions();
+      await _saveChatHistory(userQuestion, cleanedReply);
     } catch (e) {
       _addBotMessage('Connection error. Please check your internet.');
     } finally {
@@ -262,20 +254,30 @@ class _PlantChatScreenState extends State<PlantChatScreen>
   }
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      _addUserMessage('📷 Image attached');
-      _addBotMessage('I can see your image! What would you like to know?');
+    try {
+      final image = await PickedMedia.pickPlantPhoto(
+        source: ImageSource.gallery,
+      );
+      if (image != null) {
+        _addUserMessage('📷 Image attached');
+        _addBotMessage('I can see your image! What would you like to know?');
+      }
+    } catch (e) {
+      _addBotMessage("I couldn't open that photo. Try another one.");
     }
   }
 
   Future<void> _pickImageFromCamera() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.camera);
-    if (image != null) {
-      _addUserMessage('📷 Image attached');
-      _addBotMessage('I can see your image! What would you like to know?');
+    try {
+      final image = await PickedMedia.pickPlantPhoto(
+        source: ImageSource.camera,
+      );
+      if (image != null) {
+        _addUserMessage('📷 Image attached');
+        _addBotMessage('I can see your image! What would you like to know?');
+      }
+    } catch (e) {
+      _addBotMessage("I couldn't open that photo. Try another one.");
     }
   }
 
@@ -357,9 +359,7 @@ class _PlantChatScreenState extends State<PlantChatScreen>
         decoration: BoxDecoration(
           color: const Color(0xFFF8FDF8),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: const Color(0xFF4CAF50).withOpacity(0.2),
-          ),
+          border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.2)),
         ),
         child: Row(
           children: [
@@ -419,7 +419,9 @@ class _PlantChatScreenState extends State<PlantChatScreen>
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.grey.withOpacity(0.1),
@@ -446,7 +448,11 @@ class _PlantChatScreenState extends State<PlantChatScreen>
                         _clearChatHistory();
                         Navigator.pop(context);
                       },
-                      icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        size: 18,
+                        color: Colors.red,
+                      ),
                       label: Text(
                         'Clear All',
                         style: GoogleFonts.inter(
@@ -468,7 +474,11 @@ class _PlantChatScreenState extends State<PlantChatScreen>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.history, size: 64, color: Colors.grey[300]),
+                          Icon(
+                            Icons.history,
+                            size: 64,
+                            color: Colors.grey[300],
+                          ),
                           const SizedBox(height: 16),
                           Text(
                             'No chat history yet',
@@ -503,7 +513,9 @@ class _PlantChatScreenState extends State<PlantChatScreen>
                                   Container(
                                     padding: const EdgeInsets.all(6),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF4CAF50).withOpacity(0.1),
+                                      color: const Color(
+                                        0xFF4CAF50,
+                                      ).withOpacity(0.1),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: const Icon(
@@ -559,12 +571,12 @@ class _PlantChatScreenState extends State<PlantChatScreen>
   String _formatTimestamp(DateTime timestamp) {
     final now = DateTime.now();
     final difference = now.difference(timestamp);
-    
+
     if (difference.inMinutes < 1) return 'Just now';
     if (difference.inHours < 1) return '${difference.inMinutes}m ago';
     if (difference.inDays < 1) return '${difference.inHours}h ago';
     if (difference.inDays < 7) return '${difference.inDays}d ago';
-    
+
     return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
   }
 
@@ -678,11 +690,7 @@ class _PlantChatScreenState extends State<PlantChatScreen>
               ),
             ],
           ),
-          child: const Icon(
-            Icons.psychology,
-            size: 18,
-            color: Colors.white,
-          ),
+          child: const Icon(Icons.psychology, size: 18, color: Colors.white),
         ),
         const SizedBox(width: 10),
         Container(
@@ -711,9 +719,11 @@ class _PlantChatScreenState extends State<PlantChatScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: List.generate(3, (index) {
                   final delay = index * 0.2;
-                  final animationValue = (_thinkingAnimationController.value + delay) % 1.0;
-                  final opacity = 0.3 + (0.7 * (1 - (animationValue - 0.5).abs() * 2));
-                  
+                  final animationValue =
+                      (_thinkingAnimationController.value + delay) % 1.0;
+                  final opacity =
+                      0.3 + (0.7 * (1 - (animationValue - 0.5).abs() * 2));
+
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 3),
                     child: Container(
@@ -793,11 +803,7 @@ class _PlantChatScreenState extends State<PlantChatScreen>
               ),
             ],
           ),
-          child: const Icon(
-            Icons.psychology,
-            size: 18,
-            color: Colors.white,
-          ),
+          child: const Icon(Icons.psychology, size: 18, color: Colors.white),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -843,106 +849,106 @@ class _PlantChatScreenState extends State<PlantChatScreen>
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF11998E), Color(0xFF38EF7D)],
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF11998E), Color(0xFF38EF7D)],
+                    ),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  borderRadius: BorderRadius.circular(8),
+                  child: const Icon(
+                    Icons.auto_awesome,
+                    size: 14,
+                    color: Colors.white,
+                  ),
                 ),
-                child: const Icon(
-                  Icons.auto_awesome,
-                  size: 14,
-                  color: Colors.white,
+                const SizedBox(width: 8),
+                Text(
+                  'Suggested Questions',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF4B5563),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Suggested Questions',
-                style: GoogleFonts.poppins(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF4B5563),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        ..._randomQuestions.map((q) {
-          return GestureDetector(
-            onTap: () => _sendMessage(q),
-            child: Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white,
-                    const Color(0xFF11998E).withOpacity(0.05),
+          ..._randomQuestions.map((q) {
+            return GestureDetector(
+              onTap: () => _sendMessage(q),
+              child: Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white,
+                      const Color(0xFF11998E).withOpacity(0.05),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFF11998E).withOpacity(0.2),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF11998E).withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: const Color(0xFF11998E).withOpacity(0.2),
-                  width: 1.5,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF11998E), Color(0xFF38EF7D)],
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.chat_bubble_outline,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        q,
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: const Color(0xFF1F2937),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF11998E).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward,
+                        size: 16,
+                        color: Color(0xFF11998E),
+                      ),
+                    ),
+                  ],
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF11998E).withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
               ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF11998E), Color(0xFF38EF7D)],
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.chat_bubble_outline,
-                      size: 16,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      q,
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        color: const Color(0xFF1F2937),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF11998E).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.arrow_forward,
-                      size: 16,
-                      color: Color(0xFF11998E),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
+            );
+          }).toList(),
         ],
       ),
     );
@@ -1031,8 +1037,14 @@ class _PlantChatScreenState extends State<PlantChatScreen>
               ),
               child: IconButton(
                 icon: _isLoading
-                    ? _ThinkingAnimation(controller: _thinkingAnimationController)
-                    : const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                    ? _ThinkingAnimation(
+                        controller: _thinkingAnimationController,
+                      )
+                    : const Icon(
+                        Icons.send_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                 onPressed: () => _sendMessage(_controller.text),
               ),
             ),
@@ -1049,10 +1061,12 @@ class _PlantChatScreenState extends State<PlantChatScreen>
     cleaned = cleaned.replaceAll(RegExp(r'`+'), ''); // Remove code blocks
     cleaned = cleaned.replaceAll(RegExp(r'_+'), ''); // Remove underscores
     cleaned = cleaned.replaceAll(RegExp(r'\n{3,}'), '\n\n'); // Max 2 newlines
-    cleaned = cleaned.replaceAll(RegExp(r' {2,}'), ' '); // Remove multiple spaces
+    cleaned = cleaned.replaceAll(
+      RegExp(r' {2,}'),
+      ' ',
+    ); // Remove multiple spaces
     return cleaned.trim();
   }
-
 }
 
 class ChatMessage {
@@ -1099,7 +1113,7 @@ class _ThinkingAnimation extends StatelessWidget {
                 final animationValue = (controller.value + delay) % 1.0;
                 final opacity = (1.0 - animationValue) * 0.8;
                 final scale = 1.0 + (animationValue * 0.6);
-                
+
                 return Positioned(
                   child: Opacity(
                     opacity: opacity,
@@ -1123,11 +1137,7 @@ class _ThinkingAnimation extends StatelessWidget {
             );
           }),
           // Botanist icon (on top)
-          const Icon(
-            Icons.psychology,
-            color: Colors.white,
-            size: 18,
-          ),
+          const Icon(Icons.psychology, color: Colors.white, size: 18),
         ],
       ),
     );

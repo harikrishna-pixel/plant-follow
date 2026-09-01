@@ -32,20 +32,19 @@ class PlantProvider extends ChangeNotifier {
     print('🌿 Loading favorites:');
     print('  Total loaded: ${_favorites.length}');
     
-    // Remove duplicates based on plant ID (name.hashCode)
-    final seenIds = <int>{};
+    // Remove exact duplicate records (same durable id), not same species name.
+    final seenIds = <String>{};
     final uniqueFavorites = <Plant>[];
     final duplicates = <String>[];
     
     for (var plant in _favorites) {
-      final plantId = plant.name.hashCode;
-      if (seenIds.contains(plantId)) {
+      if (seenIds.contains(plant.id)) {
         duplicates.add(plant.name);
-        print('  ⚠️ DUPLICATE: ${plant.name} (ID: $plantId)');
+        print('  ⚠️ DUPLICATE: ${plant.name} (ID: ${plant.id})');
       } else {
-        seenIds.add(plantId);
+        seenIds.add(plant.id);
         uniqueFavorites.add(plant);
-        print('  - ${plant.name} (ID: $plantId)');
+        print('  - ${plant.name} (ID: ${plant.id})');
       }
     }
     
@@ -76,21 +75,26 @@ class PlantProvider extends ChangeNotifier {
   }
 
   // Add plant to favorites (returns false if already exists)
-  bool saveFavorite(Plant plant) {
+  Future<bool> saveFavorite(Plant plant) async {
     final isDuplicate = isFavorite(plant);
 
     if (isDuplicate) {
       return false;
     }
 
-    LocalStorageService.saveFavorite(plant);
-    loadFavorites();
+    await LocalStorageService.saveFavorite(plant);
+    await loadFavorites();
     return true;
   }
 
   // Alias for saveFavorite (for better naming consistency)
-  void addToFavorites(Plant plant) {
-    saveFavorite(plant);
+  Future<void> addToFavorites(Plant plant) async {
+    await saveFavorite(plant);
+  }
+
+  Future<void> updatePlant(Plant plant) async {
+    await LocalStorageService.updateFavorite(plant);
+    await loadFavorites();
   }
 
   void removeFromFavorites(Plant plant) {

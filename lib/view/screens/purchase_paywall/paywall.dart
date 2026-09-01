@@ -8,35 +8,28 @@ import 'package:plantidentifier/view/screens/bottom_bar/bottom_bar.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:purchases_ui_flutter/views/paywall_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../home_screen.dart';
+import 'package:plantidentifier/navigation/v1_shell.dart';
 import 'package:plantidentifier/mixpanel/mixpanel.dart';
 
 class PayWallScreen extends StatefulWidget {
-
   const PayWallScreen({super.key});
 
   @override
-
   State<PayWallScreen> createState() => _PayWallScreenState();
-
 }
 
 class _PayWallScreenState extends State<PayWallScreen> {
-
   Offering? offering;
 
   late ScaffoldMessengerState _scaffoldMessenger;
 
   @override
-
   void initState() {
-
     super.initState();
     // Track Paywall Screen view
     MixpanelService.trackPaywallScreen();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-
       _scaffoldMessenger = ScaffoldMessenger.of(context);
 
       await _checkInternetOnEnter();
@@ -44,65 +37,44 @@ class _PayWallScreenState extends State<PayWallScreen> {
       // Load offerings AND current user subscription status immediately
 
       await _loadOfferingsAndCustomerInfo();
-
     });
-
   }
 
   Future<void> _loadOfferingsAndCustomerInfo() async {
-
     try {
-
       final offerings = await Purchases.getOfferings();
 
       final customerInfo = await Purchases.getCustomerInfo();
 
       setState(() {
-
         offering = offerings.current;
-
       });
 
       bool isSubscribed = customerInfo.entitlements.active.isNotEmpty;
 
       if (isSubscribed) {
-
         debugPrint("User is already subscribed!");
 
-        // Optional: auto-navigate to HomeScreen
-
-        // Get.offAll(() => const HomeScreen());
-
+        // Optional: auto-navigate to V1 tab shell
+        // Get.offAll(() => V1Shell.restoreAfterPurchase());
       }
-
     } catch (e) {
-
       debugPrint("Error fetching offerings or customer info: $e");
-
     }
-
   }
 
   /// ✅ Helper to check ACTUAL internet connectivity (not just WiFi)
 
   Future<bool> _hasInternet() async {
-
     try {
-
       final response = await http
-
           .get(Uri.parse('https://www.google.com/favicon.ico'))
-
           .timeout(const Duration(seconds: 5));
 
       return response.statusCode == 200;
-
     } catch (_) {
-
       return false;
-
     }
-
   }
 
   /// ✅ Run when entering screen
@@ -126,7 +98,7 @@ class _PayWallScreenState extends State<PayWallScreen> {
   /// Show loading animation, toast for 2 seconds, then navigate back
   Future<void> _showNoInternetAndGoBack() async {
     if (!mounted) return;
-    
+
     // Show toast message
     _scaffoldMessenger.showSnackBar(
       SnackBar(
@@ -153,10 +125,10 @@ class _PayWallScreenState extends State<PayWallScreen> {
         duration: const Duration(seconds: 2),
       ),
     );
-    
+
     // Show the loading animation + toast for 2 seconds
     await Future.delayed(const Duration(seconds: 2));
-    
+
     // Navigate back if still mounted
     if (mounted) {
       Navigator.of(context).pop();
@@ -166,118 +138,83 @@ class _PayWallScreenState extends State<PayWallScreen> {
   /// 🔄 Restore Purchases Logic (alert dialog for both success and failure)
 
   Future<void> _onTapRestore() async {
-
     try {
-
       final customerInfo = await Purchases.restorePurchases();
 
       final hasActive = customerInfo.entitlements.active.isNotEmpty;
 
       if (hasActive) {
-
         // Success alert
 
         await showDialog(
-
           context: context,
 
           builder: (_) => AlertDialog(
-
             title: const Text('Success'),
 
-            content:
-
-            const Text('Your purchases have been restored successfully!'),
+            content: const Text(
+              'Your purchases have been restored successfully!',
+            ),
 
             actions: [
-
               TextButton(
-
                 onPressed: () async {
                   // Mark first launch as complete when restore succeeds
                   final prefs = await SharedPreferences.getInstance();
                   await prefs.setBool('first_launch_complete', true);
-                  
+
                   Navigator.pop(context); // dismiss dialog
 
-                  Get.offAll(() => const HomeScreen()); // navigate
-
+                  Get.offAll(() => V1Shell.restoreAfterPurchase());
                 },
 
                 child: const Text('OK'),
-
-              )
-
+              ),
             ],
-
           ),
-
         );
-
       } else {
-
         // No active purchases
 
         await showDialog(
-
           context: context,
 
           builder: (_) => AlertDialog(
-
             title: const Text('Error'),
 
             content: const Text('No Active Plans Are Available!'),
 
             actions: [
-
               TextButton(
-
                 onPressed: () => Navigator.pop(context),
 
                 child: const Text('OK'),
-
-              )
-
+              ),
             ],
-
           ),
-
         );
-
       }
-
     } on PlatformException catch (e) {
-
       // Platform exception alert
 
       await showDialog(
-
         context: context,
 
         builder: (_) => AlertDialog(
-
           title: const Text('Restore Failed'),
 
           content: Text('${e.message ?? 'Please try again later.'}'),
 
           actions: [
-
             TextButton(
-
               onPressed: () => Navigator.pop(context),
 
               child: const Text('OK'),
-
-            )
-
+            ),
           ],
-
         ),
-
       );
-
     }
-
   }
 
   @override
@@ -293,7 +230,7 @@ class _PayWallScreenState extends State<PayWallScreen> {
                 // Mark first launch as complete when paywall is dismissed
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setBool('first_launch_complete', true);
-                
+
                 final navigator = Navigator.of(context);
                 if (navigator.canPop()) {
                   navigator.pop();
@@ -302,15 +239,18 @@ class _PayWallScreenState extends State<PayWallScreen> {
                 }
               },
               onPurchaseCompleted:
-                  (CustomerInfo customerInfo, StoreTransaction transaction) async {
-                debugPrint(
-                  'Purchase completed: ${transaction.productIdentifier}',
-                );
-                // Mark first launch as complete when purchase is completed
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('first_launch_complete', true);
-                Navigator.pop(context);
-              },
+                  (
+                    CustomerInfo customerInfo,
+                    StoreTransaction transaction,
+                  ) async {
+                    debugPrint(
+                      'Purchase completed: ${transaction.productIdentifier}',
+                    );
+                    // Mark first launch as complete when purchase is completed
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('first_launch_complete', true);
+                    Navigator.pop(context);
+                  },
               onPurchaseError: (PurchasesError error) {
                 debugPrint('Purchase error: $error');
               },
@@ -411,4 +351,3 @@ class _PayWallScreenState extends State<PayWallScreen> {
     );
   }
 }
-

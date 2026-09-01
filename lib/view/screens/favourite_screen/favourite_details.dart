@@ -11,10 +11,22 @@ import 'package:plantidentifier/services/wallet_service.dart';
 import 'package:plantidentifier/model/data_model/user_wallet.dart';
 
 import '../../../model/data_model/plant_model.dart';
+import '../../../model/data_model/recovery_models.dart';
 import '../../../provider/plant_provider.dart';
-import '../../../provider/folder_provider.dart';
-import 'folder_manager.dart';
+import '../../../provider/recovery_provider.dart';
+import '../../../provider/location_provider.dart';
+import '../../../provider/care_rule_provider.dart';
+import '../../../model/data_model/plant_context.dart';
+import '../../../services/recovery_logic.dart';
+import '../../../services/plant_health_presenter.dart';
+import '../diagnosis/plant_diagnosis_screen.dart';
+import '../diagnosis/recovery_checkin_screen.dart';
+import '../plant_context/plant_context_sheet.dart';
 import 'add_to_folder_dialog.dart';
+import 'plant_care_tab.dart';
+import 'plant_health_tab.dart';
+import 'plant_timeline_tab.dart';
+import 'plant_grow_card.dart';
 
 class FavoriteDetailScreen extends StatefulWidget {
   final Plant plant;
@@ -24,7 +36,8 @@ class FavoriteDetailScreen extends StatefulWidget {
   State<FavoriteDetailScreen> createState() => _FavoriteDetailScreenState();
 }
 
-class _FavoriteDetailScreenState extends State<FavoriteDetailScreen> with SingleTickerProviderStateMixin {
+class _FavoriteDetailScreenState extends State<FavoriteDetailScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final GlobalKey _shareButtonKey = GlobalKey();
 
@@ -42,8 +55,9 @@ class _FavoriteDetailScreenState extends State<FavoriteDetailScreen> with Single
 
   Future<void> _sharePlant() async {
     const appStoreLink = 'https://apps.apple.com/app/id/6752886333';
-    
-    final shareMessage = '''
+
+    final shareMessage =
+        '''
 🌿 Hey, plant lover! 💚
 
 I just found the cutest little helper for my plants and thought to share it with you! It's called PlantFollow & Care, and honestly… it feels like having a plant expert in your pocket.
@@ -60,7 +74,7 @@ Download PlantFollow  & Care - your green thumb will thank you! 💚
 
 $appStoreLink
 ''';
-    
+
     final renderBox =
         _shareButtonKey.currentContext?.findRenderObject() as RenderBox?;
     final shareOrigin = renderBox != null
@@ -74,52 +88,52 @@ $appStoreLink
             height: MediaQuery.of(context).size.height * 0.5,
           );
 
-    await Share.share(
-      shareMessage,
-      sharePositionOrigin: shareOrigin,
-    );
+    await Share.share(shareMessage, sharePositionOrigin: shareOrigin);
 
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        final granted = await WalletService.instance
-            .tryGrantShareReward(user.uid);
+        final granted = await WalletService.instance.tryGrantShareReward(
+          user.uid,
+        );
         if (granted) {
-          final wallet = await WalletService.instance
-              .forceRefreshWallet(user.uid);
-          final prefs =
-              await SharedPreferences.getInstance();
-          await prefs.setInt(
-            'free_scans_remaining',
-            wallet.availableScans,
+          final wallet = await WalletService.instance.forceRefreshWallet(
+            user.uid,
           );
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setInt('free_scans_remaining', wallet.availableScans);
           final shareCoins = wallet.shareCoins;
           final coinEarningSharesToday = wallet.coinEarningSharesToday;
-          final remainingSharesForCoins = UserWallet.maxCoinEarningSharesPerDay - coinEarningSharesToday;
-          
+          final remainingSharesForCoins =
+              UserWallet.maxCoinEarningSharesPerDay - coinEarningSharesToday;
+
           String message;
           if (remainingSharesForCoins <= 0) {
-            message = "✅ Share recorded! You've reached today's limit (3 shares). Share again tomorrow to earn more coins!";
+            message =
+                "✅ Share recorded! You've reached today's limit (3 shares). Share again tomorrow to earn more coins!";
           } else {
             final coinsNeeded = 100 - shareCoins;
             final sharesNeeded = (coinsNeeded / 20).ceil();
-            
+
             if (shareCoins >= 100) {
-              message = "🎉 +1 scan unlocked! You earned 100 coins from sharing!";
+              message =
+                  "🎉 +1 scan unlocked! You earned 100 coins from sharing!";
             } else {
-              message = "🎁 +20 coins earned! ($shareCoins/100 coins) $remainingSharesForCoins share${remainingSharesForCoins > 1 ? 's' : ''} left today to earn coins!";
+              message =
+                  "🎁 +20 coins earned! ($shareCoins/100 coins) $remainingSharesForCoins share${remainingSharesForCoins > 1 ? 's' : ''} left today to earn coins!";
             }
           }
-          
+
           Fluttertoast.showToast(
             msg: message,
             toastLength: Toast.LENGTH_SHORT,
-            backgroundColor: remainingSharesForCoins <= 0 ? Colors.orange : const Color(0xFF388E3C),
+            backgroundColor: remainingSharesForCoins <= 0
+                ? Colors.orange
+                : const Color(0xFF388E3C),
           );
         } else {
           Fluttertoast.showToast(
-            msg:
-                "Unable to process share reward. Please try again.",
+            msg: "Unable to process share reward. Please try again.",
             toastLength: Toast.LENGTH_SHORT,
             backgroundColor: Colors.orange,
           );
@@ -130,10 +144,66 @@ $appStoreLink
     }
   }
 
+  Widget _placementControl() {
+    return Consumer2<PlantProvider, LocationProvider>(
+      builder: (context, plants, locations, _) {
+        Plant live = widget.plant;
+        for (final candidate in plants.favorites) {
+          if (candidate.id == widget.plant.id) {
+            live = candidate;
+            break;
+          }
+        }
+        final location = locations.forPlant(live);
+        final label = live.placement == PlantWeatherContext.unknown
+            ? 'Where does this one live?'
+            : location == null
+            ? live.placement.label
+            : '${live.placement.label} · ${location.name}';
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: () => showPlantContextSheet(context, plant: live),
+            child: Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: const Color(0xFF2E7D32),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _howIsItDoingLine() {
+    return Consumer2<RecoveryProvider, CareRuleProvider>(
+      builder: (context, recovery, careRules, _) {
+        final rules = careRules.rules
+            .where((r) => r.plantId == widget.plant.id)
+            .toList();
+        final text = PlantDetailStatus.howIsItDoing(
+          now: DateTime.now(),
+          activeCase: recovery.activeCaseForPlant(widget.plant.id),
+          careRules: rules,
+        );
+        return Text(
+          text,
+          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey[700]),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<PlantProvider>(context, listen: false);
-
     Widget infoCard({
       required String title,
       required Widget child,
@@ -200,55 +270,15 @@ $appStoreLink
       );
     }
 
-    Widget emptyState(IconData icon, String message) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 64, color: Colors.grey[300]),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    Widget buildBasicInfoTab() {
+    Widget buildAboutTab() {
       return ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
-          if (widget.plant.name.isNotEmpty)
-            infoCard(
-              title: "Plant Name",
-              icon: Icons.park,
-              child: Text(
-                widget.plant.name,
-                style: GoogleFonts.poppins(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF1B5E20),
-                ),
-              ),
-            ),
-          if (widget.plant.scientificName.isNotEmpty)
-            infoCard(
-              title: "Scientific Name",
-              icon: Icons.science,
-              child: Text(
-                widget.plant.scientificName,
-                style: GoogleFonts.inter(
-                  fontSize: 15,
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey[700],
-                ),
-              ),
-            ),
+          infoCard(
+            title: "This plant",
+            icon: Icons.eco_outlined,
+            child: HarvestablePlantControl(plant: widget.plant),
+          ),
           if (widget.plant.description.isNotEmpty)
             infoCard(
               title: "Description",
@@ -262,17 +292,23 @@ $appStoreLink
                 ),
               ),
             ),
-          if ((widget.plant.taxonomy ?? {}).isNotEmpty)
+          if (widget.plant.taxonomy.isNotEmpty)
             infoCard(
               title: "Classification",
               icon: Icons.account_tree,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildTaxonomyRow("Kingdom", widget.plant.taxonomy?['kingdom']),
-                  _buildTaxonomyRow("Family", widget.plant.taxonomy?['family']),
-                  _buildTaxonomyRow("Genus", widget.plant.taxonomy?['genus']),
-                  _buildTaxonomyRow("Species", widget.plant.taxonomy?['species']),
+                  _buildTaxonomyRow(
+                    "Kingdom",
+                    widget.plant.taxonomy['kingdom'],
+                  ),
+                  _buildTaxonomyRow("Family", widget.plant.taxonomy['family']),
+                  _buildTaxonomyRow("Genus", widget.plant.taxonomy['genus']),
+                  _buildTaxonomyRow(
+                    "Species",
+                    widget.plant.taxonomy['species'],
+                  ),
                 ],
               ),
             ),
@@ -286,17 +322,6 @@ $appStoreLink
                 style: GoogleFonts.inter(fontSize: 14, color: Colors.grey[800]),
               ),
             ),
-        ],
-      );
-    }
-
-    Widget buildCareGrowthTab() {
-      final hasContent = widget.plant.growthSeason.isNotEmpty || (widget.plant.careGuide ?? {}).isNotEmpty;
-      if (!hasContent) return emptyState(Icons.spa, 'No care information available');
-
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-        children: [
           if (widget.plant.growthSeason.isNotEmpty)
             infoCard(
               title: "Growing Season",
@@ -307,53 +332,56 @@ $appStoreLink
                 style: GoogleFonts.inter(fontSize: 14, color: Colors.grey[800]),
               ),
             ),
-          if ((widget.plant.careGuide ?? {}).isNotEmpty)
+          if (widget.plant.careGuide.isNotEmpty)
             infoCard(
-              title: "Care Guide",
+              title: "Care notes",
               icon: Icons.spa,
               iconColor: const Color(0xFF8BC34A),
               child: Column(
                 children: [
-                  _buildCareRow(Icons.water_drop, "Watering", widget.plant.careGuide?['watering']),
-                  _buildCareRow(Icons.wb_sunny_outlined, "Sunlight", widget.plant.careGuide?['sunlight']),
-                  _buildCareRow(Icons.grass, "Soil", widget.plant.careGuide?['soil']),
-                  _buildCareRow(Icons.eco, "Fertilization", widget.plant.careGuide?['fertilization']),
-                  _buildCareRow(Icons.content_cut, "Pruning", widget.plant.careGuide?['pruning']),
-                  _buildCareRow(Icons.nature, "Propagation", widget.plant.careGuide?['propagation']),
+                  _buildCareRow(
+                    Icons.water_drop,
+                    "Watering",
+                    widget.plant.careGuide['watering'],
+                  ),
+                  _buildCareRow(
+                    Icons.wb_sunny_outlined,
+                    "Sunlight",
+                    widget.plant.careGuide['sunlight'],
+                  ),
+                  _buildCareRow(
+                    Icons.grass,
+                    "Soil",
+                    widget.plant.careGuide['soil'],
+                  ),
+                  _buildCareRow(
+                    Icons.eco,
+                    "Fertilization",
+                    widget.plant.careGuide['fertilization'],
+                  ),
+                  _buildCareRow(
+                    Icons.content_cut,
+                    "Pruning",
+                    widget.plant.careGuide['pruning'],
+                  ),
+                  _buildCareRow(
+                    Icons.nature,
+                    "Propagation",
+                    widget.plant.careGuide['propagation'],
+                  ),
                 ],
               ),
             ),
-        ],
-      );
-    }
-
-    Widget buildHealthSafetyTab() {
-      final hasContent = widget.plant.healthScan.isNotEmpty ||
-          widget.plant.toxicity.isNotEmpty ||
-          widget.plant.commonPests.isNotEmpty ||
-          widget.plant.commonDiseases.isNotEmpty;
-      if (!hasContent) return emptyState(Icons.health_and_safety, 'No health information available');
-
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-        children: [
           if (widget.plant.healthScan.isNotEmpty)
             infoCard(
-              title: "Health Status",
+              title: "Identification notes",
               icon: Icons.health_and_safety,
               iconColor: const Color(0xFF4CAF50),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E8),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  widget.plant.healthScan,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    color: const Color(0xFF2E7D32),
-                  ),
+              child: Text(
+                widget.plant.healthScan,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: const Color(0xFF2E7D32),
                 ),
               ),
             ),
@@ -362,22 +390,16 @@ $appStoreLink
               title: "Safety Information",
               icon: Icons.warning_rounded,
               iconColor: const Color(0xFFF44336),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF3E0),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  widget.plant.toxicity,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    color: const Color(0xFFE65100),
-                  ),
+              child: Text(
+                widget.plant.toxicity,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: const Color(0xFFE65100),
                 ),
               ),
             ),
-          if (widget.plant.commonPests.isNotEmpty || widget.plant.commonDiseases.isNotEmpty)
+          if (widget.plant.commonPests.isNotEmpty ||
+              widget.plant.commonDiseases.isNotEmpty)
             infoCard(
               title: "Common Issues",
               icon: Icons.bug_report,
@@ -400,7 +422,8 @@ $appStoreLink
                         color: Colors.grey[800],
                       ),
                     ),
-                    if (widget.plant.commonDiseases.isNotEmpty) const SizedBox(height: 8),
+                    if (widget.plant.commonDiseases.isNotEmpty)
+                      const SizedBox(height: 8),
                   ],
                   if (widget.plant.commonDiseases.isNotEmpty) ...[
                     Text(
@@ -421,17 +444,6 @@ $appStoreLink
                 ],
               ),
             ),
-        ],
-      );
-    }
-
-    Widget buildAdditionalInfoTab() {
-      final hasContent = widget.plant.usage.isNotEmpty || widget.plant.funFact.isNotEmpty;
-      if (!hasContent) return emptyState(Icons.info_outline, 'No additional information available');
-
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-        children: [
           if (widget.plant.usage.isNotEmpty)
             infoCard(
               title: "Uses",
@@ -447,18 +459,11 @@ $appStoreLink
               title: "Did You Know?",
               icon: Icons.lightbulb_rounded,
               iconColor: const Color(0xFFFFC107),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF8E1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  widget.plant.funFact,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    color: const Color(0xFFFF8F00),
-                  ),
+              child: Text(
+                widget.plant.funFact,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: const Color(0xFFFF8F00),
                 ),
               ),
             ),
@@ -510,7 +515,8 @@ $appStoreLink
                     // Plant Image - Small Corner
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: (widget.plant.imageFile != null &&
+                      child:
+                          (widget.plant.imageFile != null &&
                               File(widget.plant.imageFile!.path).existsSync())
                           ? Image.file(
                               widget.plant.imageFile!,
@@ -561,11 +567,66 @@ $appStoreLink
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
+                          const SizedBox(height: 6),
+                          _placementControl(),
+                          const SizedBox(height: 4),
+                          _howIsItDoingLine(),
                         ],
                       ),
                     ),
                   ],
                 ),
+              ),
+
+              Consumer<PlantProvider>(
+                builder: (context, plants, _) {
+                  Plant live = widget.plant;
+                  for (final candidate in plants.favorites) {
+                    if (candidate.id == widget.plant.id) {
+                      live = candidate;
+                      break;
+                    }
+                  }
+                  return PlantGrowCard(plant: live);
+                },
+              ),
+
+              Consumer<RecoveryProvider>(
+                builder: (context, recovery, _) {
+                  final openCase = recovery.activeCaseForPlant(widget.plant.id);
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                    child: Column(
+                      children: [
+                        if (openCase != null)
+                          _recoveryBanner(context, recovery, openCase),
+                        if (openCase == null)
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => PlantDiagnosisScreen(
+                                      plant: widget.plant,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Text(
+                                "Something's wrong",
+                                style: GoogleFonts.poppins(
+                                  color: const Color(0xFF2E7D32),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
               ),
 
               // Horizontal Tab Bar
@@ -613,10 +674,16 @@ $appStoreLink
                     fontWeight: FontWeight.w500,
                   ),
                   tabs: const [
-                    Tab(icon: Icon(Icons.info_outline, size: 16), text: 'Basic'),
                     Tab(icon: Icon(Icons.spa, size: 16), text: 'Care'),
-                    Tab(icon: Icon(Icons.health_and_safety, size: 16), text: 'Health'),
-                    Tab(icon: Icon(Icons.lightbulb_outline, size: 16), text: 'More'),
+                    Tab(
+                      icon: Icon(Icons.health_and_safety, size: 16),
+                      text: 'Health',
+                    ),
+                    Tab(icon: Icon(Icons.timeline, size: 16), text: 'Timeline'),
+                    Tab(
+                      icon: Icon(Icons.info_outline, size: 16),
+                      text: 'About',
+                    ),
                   ],
                 ),
               ),
@@ -626,10 +693,10 @@ $appStoreLink
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    buildBasicInfoTab(),
-                    buildCareGrowthTab(),
-                    buildHealthSafetyTab(),
-                    buildAdditionalInfoTab(),
+                    PlantCareTab(plant: widget.plant),
+                    PlantHealthTab(plant: widget.plant),
+                    PlantTimelineTab(plantId: widget.plant.id),
+                    buildAboutTab(),
                   ],
                 ),
               ),
@@ -680,7 +747,11 @@ $appStoreLink
                             ),
                             elevation: 2,
                           ),
-                          icon: const Icon(Icons.favorite_border, color: Colors.white, size: 18),
+                          icon: const Icon(
+                            Icons.favorite_border,
+                            color: Colors.white,
+                            size: 18,
+                          ),
                           label: Text(
                             'Remove',
                             style: GoogleFonts.poppins(
@@ -690,16 +761,25 @@ $appStoreLink
                             ),
                           ),
                           onPressed: () {
-                            final provider = Provider.of<PlantProvider>(context, listen: false);
+                            final provider = Provider.of<PlantProvider>(
+                              context,
+                              listen: false,
+                            );
                             provider.removeFromFavorites(widget.plant);
                             Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Row(
                                   children: [
-                                    const Icon(Icons.check_circle, color: Colors.white),
+                                    const Icon(
+                                      Icons.check_circle,
+                                      color: Colors.white,
+                                    ),
                                     const SizedBox(width: 8),
-                                    Text('Removed!', style: GoogleFonts.poppins(fontSize: 13)),
+                                    Text(
+                                      'Removed!',
+                                      style: GoogleFonts.poppins(fontSize: 13),
+                                    ),
                                   ],
                                 ),
                                 backgroundColor: const Color(0xFFF44336),
@@ -722,9 +802,16 @@ $appStoreLink
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            side: const BorderSide(color: Color(0xFF4CAF50), width: 1.5),
+                            side: const BorderSide(
+                              color: Color(0xFF4CAF50),
+                              width: 1.5,
+                            ),
                           ),
-                          icon: const Icon(Icons.share_rounded, color: Color(0xFF4CAF50), size: 18),
+                          icon: const Icon(
+                            Icons.share_rounded,
+                            color: Color(0xFF4CAF50),
+                            size: 18,
+                          ),
                           label: Text(
                             'Share',
                             style: GoogleFonts.poppins(
@@ -750,7 +837,11 @@ $appStoreLink
                               width: 1.5,
                             ),
                           ),
-                          icon: const Icon(Icons.create_new_folder_outlined, color: Color(0xFF4CAF50), size: 18),
+                          icon: const Icon(
+                            Icons.create_new_folder_outlined,
+                            color: Color(0xFF4CAF50),
+                            size: 18,
+                          ),
                           label: Text(
                             'Garden',
                             style: GoogleFonts.poppins(
@@ -764,7 +855,8 @@ $appStoreLink
                               context: context,
                               backgroundColor: Colors.transparent,
                               isScrollControlled: true,
-                              builder: (context) => AddToFolderDialog(plant: widget.plant),
+                              builder: (context) =>
+                                  AddToFolderDialog(plant: widget.plant),
                             );
                           },
                         ),
@@ -774,6 +866,82 @@ $appStoreLink
                 ),
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _recoveryBanner(
+    BuildContext context,
+    RecoveryProvider recovery,
+    RecoveryCase openCase,
+  ) {
+    final canUnknown = RecoveryLogic.canCloseAsUnknown(
+      openCase,
+      DateTime.now(),
+    );
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F5E8),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            recovery.checkBackSentence(openCase),
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF1B5E20),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => RecoveryCheckInScreen(
+                        recoveryCase: openCase,
+                        plant: widget.plant,
+                        stage: openCase.day3CompletedAt == null
+                            ? CheckInStage.day3
+                            : CheckInStage.day7,
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('Check in'),
+              ),
+              TextButton(
+                onPressed: () => recovery.deferTreatment(openCase),
+                child: const Text("I haven't got to it yet"),
+              ),
+              if (canUnknown)
+                TextButton(
+                  onPressed: () => recovery.closeCase(
+                    recoveryCase: openCase,
+                    result: OutcomeResult.unknown,
+                    closeReason: 'missed_day3',
+                  ),
+                  child: const Text('Close as unknown'),
+                ),
+              TextButton(
+                onPressed: () => recovery.closeCase(
+                  recoveryCase: openCase,
+                  result: OutcomeResult.lost,
+                  closeReason: 'user_closed_lost',
+                ),
+                child: const Text('Plant did not make it'),
+              ),
+            ],
           ),
         ],
       ),

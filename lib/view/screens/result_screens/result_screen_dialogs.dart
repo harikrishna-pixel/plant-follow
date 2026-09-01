@@ -244,9 +244,7 @@ class ResultScreenDialogs {
                 itemCount: folders.length,
                 itemBuilder: (context, index) {
                   final folder = folders[index];
-                  final plantIds = folder.plantIds;
-                  final plantId = plant.uniqueId;
-                  final isAdded = plantIds.contains(plantId);
+                  final isAdded = folder.containsPlant(plant);
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -304,7 +302,7 @@ class ResultScreenDialogs {
                           color: Colors.grey[600],
                         ),
                       ),
-                      onTap: () {
+                      onTap: () async {
                         if (isAdded) {
                           // Navigate to folder detail if already added
                           Navigator.pop(context);
@@ -318,14 +316,13 @@ class ResultScreenDialogs {
                           // First, add plant to favorites if not already there
                           final plantProvider = Provider.of<PlantProvider>(context, listen: false);
                           if (!plantProvider.isFavorite(plant)) {
-                            plantProvider.addToFavorites(plant);
+                            await plantProvider.addToFavorites(plant);
                           }
                           
                           // Then add plant to folder
-                          final plantId = plant.uniqueId;
-                          folderProvider.addPlantToFolder(
+                          folderProvider.addPlantRecordToFolder(
                             folder.id,
-                            plantId,
+                            plant,
                           );
 
                           Navigator.pop(context);

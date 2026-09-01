@@ -5,6 +5,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../../provider/plant_provider.dart';
+import '../../../provider/location_provider.dart';
+import '../../../model/data_model/plant_context.dart';
+import '../../../model/data_model/plant_model.dart';
 import 'favourite_details.dart';
 
 class FavoritesScreen extends StatelessWidget {
@@ -134,9 +137,7 @@ class FavoritesScreen extends StatelessWidget {
                       ),
                     ),
                     subtitle: Text(
-                      plant.description.length > 80
-                          ? '${plant.description.substring(0, 80)}...'
-                          : plant.description,
+                      _plantCardSubtitle(plant, context),
                       style: GoogleFonts.inter(
                         color: Colors.grey[600],
                         fontSize: 14,
@@ -191,4 +192,19 @@ class FavoritesScreen extends StatelessWidget {
             ),
     );
   }
+}
+
+String _plantCardSubtitle(Plant plant, BuildContext context) {
+  final location = context.read<LocationProvider>().forPlant(plant);
+  final bits = <String>[];
+  if (location != null) bits.add(location.name);
+  if (plant.placement != PlantWeatherContext.unknown) {
+    bits.add(plant.placement.label);
+  }
+  final desc = plant.description.length > 80
+      ? '${plant.description.substring(0, 80)}...'
+      : plant.description;
+  if (bits.isEmpty) return desc;
+  if (desc.isEmpty) return bits.join(' · ');
+  return '${bits.join(' · ')} · $desc';
 }

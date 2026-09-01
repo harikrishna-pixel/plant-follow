@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../model/data_model/folder_model.dart';
+import '../model/data_model/plant_model.dart';
 
 class FolderProvider extends ChangeNotifier {
   List<PlantFolder> _folders = [];
@@ -117,6 +118,13 @@ class FolderProvider extends ChangeNotifier {
     }
   }
 
+  void addPlantRecordToFolder(String folderId, Plant plant) {
+    final folderIndex = _folders.indexWhere((f) => f.id == folderId);
+    if (folderIndex == -1) return;
+    if (_folders[folderIndex].containsPlant(plant)) return;
+    addPlantToFolder(folderId, plant.id);
+  }
+
   void removePlantFromFolder(String folderId, String plantId) {
     print('🗑️ Removing plant from folder (Provider):');
     print('  Folder ID: $folderId');
@@ -144,6 +152,17 @@ class FolderProvider extends ChangeNotifier {
     }
   }
 
+  void removePlantRecordFromFolder(String folderId, Plant plant) {
+    final folderIndex = _folders.indexWhere((f) => f.id == folderId);
+    if (folderIndex == -1) return;
+    final before = _folders[folderIndex].plantIds.length;
+    _folders[folderIndex].plantIds.removeWhere(plant.matchesStoredId);
+    if (_folders[folderIndex].plantIds.length != before) {
+      _saveFolders();
+      notifyListeners();
+    }
+  }
+
   void updateFolder(String folderId, String name, String? description) {
     final folderIndex = _folders.indexWhere((f) => f.id == folderId);
     if (folderIndex != -1) {
@@ -159,6 +178,13 @@ class FolderProvider extends ChangeNotifier {
   List<String> getFolderIdsForPlant(String plantId) {
     return _folders
         .where((folder) => folder.plantIds.contains(plantId))
+        .map((folder) => folder.id)
+        .toList();
+  }
+
+  List<String> getFolderIdsForPlantRecord(Plant plant) {
+    return _folders
+        .where((folder) => folder.containsPlant(plant))
         .map((folder) => folder.id)
         .toList();
   }

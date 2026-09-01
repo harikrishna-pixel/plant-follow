@@ -1,6 +1,10 @@
 import 'env.dart';
 
 class AppConstants {
+  /// Same Combine → Gemini proxy used by AI Chat.
+  static const String plantAiChatUrl =
+      'https://combine-api-ruby.vercel.app/api/chat';
+
   // API Configuration
   static const String geminiBaseUrl = 'https://generativelanguage.googleapis.com';
 
