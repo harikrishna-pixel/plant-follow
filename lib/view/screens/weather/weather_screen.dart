@@ -64,7 +64,7 @@ class _WeatherWidgetState extends State<WeatherWidget> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: const Color(0xFFF7F9F5),
       body: _buildBody(),
     );
   }
@@ -339,9 +339,27 @@ class _WeatherWidgetState extends State<WeatherWidget> {
   }
 
   Widget _buildTemperatureRange() {
+    final current = _weatherData!.temperature;
+    final feels = _weatherData!.feelsLike;
+    if (!_weatherData!.hasCredibleDailyRange) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _rangeStat(_formatTemperature(current), 'Now'),
+            _rangeStat(_formatTemperature(feels), 'Feels like'),
+          ],
+        ),
+      );
+    }
+
     final min = _weatherData!.tempMin;
     final max = _weatherData!.tempMax;
-    final current = _weatherData!.temperature;
     final range = (max - min).abs() < 0.1 ? 1 : (max - min);
     final progress = ((current - min) / range).clamp(0.0, 1.0);
 
@@ -356,9 +374,9 @@ class _WeatherWidgetState extends State<WeatherWidget> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _rangeStat(_formatTemperature(min), 'Low'),
-              _rangeStat(_formatTemperature(_weatherData!.feelsLike), 'Real Feel'),
-              _rangeStat(_formatTemperature(max), 'High'),
+              _rangeStat(_formatTemperature(min), 'Observed low'),
+              _rangeStat(_formatTemperature(feels), 'Feels like'),
+              _rangeStat(_formatTemperature(max), 'Observed high'),
             ],
           ),
           const SizedBox(height: 12),
@@ -510,13 +528,10 @@ class _WeatherWidgetState extends State<WeatherWidget> {
   }
 
   String _generatePlantTip() {
-    final temp = _weatherData!.temperature;
-    final humidity = _weatherData!.humidity;
-    if (temp >= 32) return 'Hot weather—mist plants & avoid direct sun';
-    if (temp <= 18) return 'Cool day—reduce watering frequency';
-    if (humidity >= 70) return 'High humidity—ensure good air circulation';
-    if (humidity <= 35) return 'Dry air—consider grouping plants together';
-    return 'Great conditions for regular plant care';
+    return WeatherCopy.environmentNote(
+      temperatureC: _weatherData!.temperature,
+      humidity: _weatherData!.humidity,
+    );
   }
 
   void _showLocationOptions() {

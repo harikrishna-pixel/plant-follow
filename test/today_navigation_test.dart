@@ -179,7 +179,7 @@ void main() {
     );
 
     test(
-      'known outdoor placement can surface critical weather above recovery',
+      'recovery outranks critical weather for outdoor plants',
       () {
         final result = TodayPriorityResolver.resolve(
           now: DateTime(2026, 9, 1, 10),
@@ -189,8 +189,26 @@ void main() {
           weather: const TodayWeatherSnapshot(temperatureC: 40),
           plantWeatherContexts: const [PlantWeatherContext.outdoorPotted],
         );
+        expect(result.cards.first.kind, TodayActionKind.recovery);
+        expect(
+          result.cards.any((c) => c.kind == TodayActionKind.weather),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'known outdoor placement can surface critical weather when nothing else is due',
+      () {
+        final result = TodayPriorityResolver.resolve(
+          now: DateTime(2026, 9, 1, 10),
+          cases: const [],
+          plantNames: {'plant-1': 'Monstera'},
+          weather: const TodayWeatherSnapshot(temperatureC: 40),
+          plantWeatherContexts: const [PlantWeatherContext.outdoorPotted],
+        );
+        expect(result.cards, isNotEmpty);
         expect(result.cards.first.kind, TodayActionKind.weather);
-        expect(result.cards[1].kind, TodayActionKind.recovery);
       },
     );
 
@@ -344,11 +362,12 @@ void main() {
   });
 
   group('Navigation', () {
-    test('primary V1 destinations are Today, Plants, and Me', () {
-      expect(V1Nav.primaryLabels, ['Today', 'Plants', 'Me']);
+    test('primary V1 destinations are Today, Plants, Progress, and Me', () {
+      expect(V1Nav.primaryLabels, ['Today', 'Plants', 'Progress', 'Me']);
       expect(V1Nav.askMeIsPrimaryDestination, isFalse);
       expect(V1Nav.cameraIsPersistentTab, isFalse);
       expect(MeSecondaryTools.titles, contains(MeSecondaryTools.aiBotanist));
+      expect(MeSecondaryTools.titles, contains(MeSecondaryTools.scanHistory));
     });
 
     test('Restore Purchase returns to the V1 tab shell, not HomeScreen', () {
@@ -357,7 +376,7 @@ void main() {
       expect(V1Shell.restoreAfterPurchase(), isNot(isA<HomeScreen>()));
     });
 
-    testWidgets('bottom bar shows Today Plants Me and not Ask Me', (
+    testWidgets('bottom bar shows Today Plants Camera Progress Me', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -372,6 +391,8 @@ void main() {
       );
       expect(find.text('Today'), findsOneWidget);
       expect(find.text('Plants'), findsOneWidget);
+      expect(find.text('Camera'), findsOneWidget);
+      expect(find.text('Progress'), findsOneWidget);
       expect(find.text('Me'), findsOneWidget);
       expect(find.text('Ask Me'), findsNothing);
       expect(find.text('Home'), findsNothing);

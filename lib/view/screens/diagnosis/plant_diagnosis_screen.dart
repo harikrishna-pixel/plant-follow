@@ -12,10 +12,9 @@ import '../../../model/data_model/plant_model.dart';
 import '../../../model/data_model/recovery_models.dart';
 import '../../../provider/recovery_provider.dart';
 import 'package:provider/provider.dart';
-import '../../../widgets/banner_widget.dart';
-import 'diagnosis_result_screen.dart';
-import '../privacy_and_terms/review.dart';
 import '../../../mixpanel/mixpanel.dart';
+import '../privacy_and_terms/review.dart';
+import 'diagnosis_result_screen.dart';
 
 class PlantDiagnosisScreen extends StatefulWidget {
   final Plant? plant;
@@ -139,28 +138,13 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen>
         _rotationController.repeat();
         _particleController.repeat();
 
-        // Simulate analyzing delay
-        await Future.delayed(const Duration(seconds: 2));
-
-        // Show Rate Us popup only once for new users
-        // In PlantDiagnosisScreen, around line 145-150, update this section:
-
-        // Show Rate Us popup only once for new users
-        final prefs = await SharedPreferences.getInstance();
-        final hasSeenRatePopup =
-            prefs.getBool('has_seen_rate_popup') ?? false; // Changed key name
-
-        if (!hasSeenRatePopup) {
-          await _showRateUsPopup();
-        }
-
         if (!File(image.path).existsSync()) {
           throw StateError('Selected image was empty');
         }
 
-        // Analyze the plant health
-        final diagnosisResult = await GeminiService.diagnosePlantHealth(
+        final attempt = await GeminiService.diagnosePlantHealth(
           File(image.path),
+          plant: widget.plant,
         );
 
         // Stop animations
@@ -171,21 +155,32 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen>
 
         setState(() => _isAnalyzing = false);
 
-        if (diagnosisResult != null && mounted) {
+        if (attempt.isSuccess && attempt.json != null && mounted) {
+          final diagnosisResult = attempt.json!;
           final recovery = context.read<RecoveryProvider>();
           final existingPlant = widget.plant;
           PlantDiagnosis? diagnosis;
           TreatmentPlan? treatment;
           if (existingPlant != null) {
-            diagnosis = await recovery.persistDiagnosisFromGemini(
+            diagnosis = await recovery.tryPersistDiagnosisFromGemini(
               geminiJson: diagnosisResult,
               plant: existingPlant,
               photoPath: image.path,
             );
-            treatment = recovery.draftTreatment(
-              geminiJson: diagnosisResult,
-              diagnosis: diagnosis,
+            if (diagnosis != null) {
+              treatment = recovery.draftTreatment(
+                geminiJson: diagnosisResult,
+                diagnosis: diagnosis,
+              );
+            }
+          }
+          if (diagnosis == null && existingPlant != null) {
+            if (!mounted) return;
+            _showCalmFailure(
+              "We couldn't check this photo",
+              'Try a clearer photo of the plant, flower, or affected area.',
             );
+            return;
           }
           if (!mounted) return;
           Navigator.push(
@@ -201,25 +196,101 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen>
             ),
           );
         } else {
-          Get.snackbar(
-            "❌ Error",
-            "Failed to analyze plant. Please try again.",
-            backgroundColor: Colors.red,
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
+          _showCalmFailure(
+            "We couldn't check this photo",
+            'Try a clearer photo of the plant, flower, or affected area.',
           );
         }
       }
     } catch (e) {
       setState(() => _isAnalyzing = false);
-      Get.snackbar(
-        "❌ Error",
-        "Something went wrong. Please try again.",
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
+      _showCalmFailure(
+        "We couldn't check this photo",
+        'Try a clearer photo of the plant, flower, or affected area.',
       );
     }
+  }
+
+  void _showCalmFailure(String title, String body) {
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1B5E20),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  body,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _pickImage(ImageSource.gallery);
+                        },
+                        child: Text(
+                          'Choose Another Photo',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF2E7D32),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          if (_selectedImage != null) {
+                            _pickImage(ImageSource.camera);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2E7D32),
+                        ),
+                        child: Text(
+                          'Try Again',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _showRateUsPopup() async {
@@ -423,14 +494,14 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FDF8),
+      backgroundColor: const Color(0xFFF7F9F5),
       appBar: AppBar(
         title: Text(
-          'Plant Diagnosis',
+          "What's wrong?",
           style: GoogleFonts.poppins(
             fontSize: 20,
             fontWeight: FontWeight.w600,
-            color: const Color(0xFF2E7D32),
+            color: const Color(0xFF172019),
           ),
         ),
         backgroundColor: Colors.white,
@@ -443,9 +514,6 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen>
               padding: const EdgeInsets.all(24),
               child: Column(
                 children: [
-                  // Banner Widget
-                  const BannerWidget(screenId: 'diagnosis'),
-                  // Hero Icon
                   Container(
                     width: 120,
                     height: 120,
@@ -485,8 +553,8 @@ class _PlantDiagnosisScreenState extends State<PlantDiagnosisScreen>
                   // Description
                   Text(
                     widget.plant == null
-                        ? 'Take a photo of the affected area. Get close to the leaf or stem that looks off.'
-                        : 'Get close to the affected leaf on ${widget.plant!.name}.',
+                        ? 'Take a photo of the affected area — a leaf, flower, fruit, or the whole plant.'
+                        : 'Get close to the part of ${widget.plant!.name} that looks off — leaf, flower, or whole plant.',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
                       fontSize: 16,

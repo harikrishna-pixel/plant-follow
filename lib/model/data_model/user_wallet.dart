@@ -134,21 +134,45 @@ class UserWallet {
   ) {
     return UserWallet(
       uid: uid,
-      referred: data['referred'] as bool? ?? false,
-      referredBy: data['referredBy'] as String?,
-      availableScans: (data['availableScans'] as num?)?.toInt() ?? 0,
-      totalScansEarned: (data['totalScansEarned'] as num?)?.toInt() ?? 0,
-      totalScansUsed: (data['totalScansUsed'] as num?)?.toInt() ?? 0,
-      totalReferrals: (data['totalReferrals'] as num?)?.toInt() ?? 0,
-      shareCountToday: (data['shareCountToday'] as num?)?.toInt() ?? 0,
-      shareCoins: (data['shareCoins'] as num?)?.toInt() ?? 0,
-      coinEarningSharesToday: (data['coinEarningSharesToday'] as num?)?.toInt() ?? 0,
+      referred: _asBool(data['referred']),
+      referredBy: _asNullableString(data['referredBy']),
+      availableScans: _asInt(data['availableScans']),
+      totalScansEarned: _asInt(data['totalScansEarned']),
+      totalScansUsed: _asInt(data['totalScansUsed']),
+      totalReferrals: _asInt(data['totalReferrals']),
+      shareCountToday: _asInt(data['shareCountToday']),
+      shareCoins: _asInt(data['shareCoins']),
+      coinEarningSharesToday: _asInt(data['coinEarningSharesToday']),
       lastShareDate: _parseDate(data['lastShareDate']),
       lastAdRewardAt: _parseDate(data['lastAdRewardAt']),
-      referralCode: data['referralCode'] as String? ?? _generateReferralCode(uid),
+      referralCode: _asNullableString(data['referralCode']) ??
+          _generateReferralCode(uid),
       createdAt: _parseDate(data['createdAt']),
       updatedAt: _parseDate(data['updatedAt']),
     );
+  }
+
+  static int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim()) ?? 0;
+    return 0;
+  }
+
+  static bool _asBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      return normalized == 'true' || normalized == '1';
+    }
+    return false;
+  }
+
+  static String? _asNullableString(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
   }
 
   static DateTime? _parseDate(dynamic value) {

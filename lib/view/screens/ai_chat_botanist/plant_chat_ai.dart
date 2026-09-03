@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:plantidentifier/services/picked_media.dart';
 import 'package:plantidentifier/services/plant_ai_client.dart';
+import 'package:plantidentifier/services/plant_chat_logic.dart';
 
 class PlantChatScreen extends StatefulWidget {
   const PlantChatScreen({super.key});
@@ -22,6 +24,8 @@ class _PlantChatScreenState extends State<PlantChatScreen>
   final List<ChatHistory> _chatHistories = [];
   bool _isLoading = false;
   String? _currentChatId;
+  List<int>? _attachedImageBytes;
+  String? _previousQuestion;
   late AnimationController _thinkingAnimationController;
 
   final List<String> _allQuestions = [
@@ -131,8 +135,12 @@ class _PlantChatScreenState extends State<PlantChatScreen>
     _scrollToBottom();
   }
 
-  void _addUserMessage(String text) {
-    setState(() => _messages.add(ChatMessage(text: text, isUser: true)));
+  void _addUserMessage(String text, {List<int>? imageBytes}) {
+    setState(
+      () => _messages.add(
+        ChatMessage(text: text, isUser: true, imageBytes: imageBytes),
+      ),
+    );
     _scrollToBottom();
   }
 
@@ -163,9 +171,14 @@ class _PlantChatScreenState extends State<PlantChatScreen>
 
     try {
       final reply = await PlantAiClient.complete(
-        input:
-            'You are an expert botanist. Answer this plant question: $text',
+        input: PlantChatLogic.botanistPrompt(
+          question: text,
+          hasImage: PlantChatLogic.hasUsableImage(_attachedImageBytes),
+          previousQuestion: _previousQuestion,
+        ),
+        imageBytes: _attachedImageBytes,
       );
+      _previousQuestion = userQuestion;
       final cleanedReply = _cleanMarkdown(reply);
       _addBotMessage(cleanedReply);
       _generateRandomQuestions();
@@ -259,11 +272,12 @@ class _PlantChatScreenState extends State<PlantChatScreen>
         source: ImageSource.gallery,
       );
       if (image != null) {
-        _addUserMessage('📷 Image attached');
-        _addBotMessage('I can see your image! What would you like to know?');
+        _attachedImageBytes = await image.readAsBytes();
+        _addUserMessage('Photo attached', imageBytes: _attachedImageBytes);
+        _addBotMessage(PlantChatLogic.attachedCopy);
       }
     } catch (e) {
-      _addBotMessage("I couldn't open that photo. Try another one.");
+      _addBotMessage(PlantChatLogic.missingCopy);
     }
   }
 
@@ -273,8 +287,9 @@ class _PlantChatScreenState extends State<PlantChatScreen>
         source: ImageSource.camera,
       );
       if (image != null) {
-        _addUserMessage('📷 Image attached');
-        _addBotMessage('I can see your image! What would you like to know?');
+        _attachedImageBytes = await image.readAsBytes();
+        _addUserMessage('Photo attached', imageBytes: _attachedImageBytes);
+        _addBotMessage(PlantChatLogic.attachedCopy);
       }
     } catch (e) {
       _addBotMessage("I couldn't open that photo. Try another one.");
@@ -584,22 +599,10 @@ class _PlantChatScreenState extends State<PlantChatScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: const Color(0xFFF7F9F5),
       appBar: AppBar(
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF11998E), Color(0xFF38EF7D)],
-            ),
-          ),
-        ),
+        backgroundColor: Colors.white,
         elevation: 0,
-        // leading: IconButton(
-        //   icon: const Icon(Icons.arrow_back, color: Colors.white),
-        //   onPressed: _showEndChatDialog,
-        // ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -608,7 +611,7 @@ class _PlantChatScreenState extends State<PlantChatScreen>
               style: GoogleFonts.poppins(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: Colors.white,
+                color: const Color(0xFF172019),
               ),
             ),
             Row(
@@ -616,24 +619,17 @@ class _PlantChatScreenState extends State<PlantChatScreen>
                 Container(
                   width: 6,
                   height: 6,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4ADE80),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF2E8B43),
                     shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF4ADE80).withOpacity(0.5),
-                        blurRadius: 4,
-                        spreadRadius: 1,
-                      ),
-                    ],
                   ),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   'Online',
-                  style: GoogleFonts.inter(
+                  style: GoogleFonts.poppins(
                     fontSize: 11,
-                    color: Colors.white.withOpacity(0.9),
+                    color: const Color(0xFF667068),
                   ),
                 ),
               ],
@@ -751,34 +747,41 @@ class _PlantChatScreenState extends State<PlantChatScreen>
         child: Container(
           margin: const EdgeInsets.only(bottom: 12, left: 60),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF11998E), Color(0xFF38EF7D)],
-            ),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
-              bottomLeft: Radius.circular(24),
+          decoration: const BoxDecoration(
+            color: Color(0xFF1F6F35),
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(16),
+              topRight: Radius.circular(16),
+              bottomLeft: Radius.circular(16),
               bottomRight: Radius.circular(6),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF11998E).withOpacity(0.4),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (message.imageBytes != null && message.imageBytes!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(
+                      Uint8List.fromList(message.imageBytes!),
+                      width: 140,
+                      height: 140,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              Text(
+                message.text,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: Colors.white,
+                  height: 1.4,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
-          ),
-          child: Text(
-            message.text,
-            style: GoogleFonts.inter(
-              fontSize: 14,
-              color: Colors.white,
-              height: 1.5,
-              fontWeight: FontWeight.w500,
-            ),
           ),
         ),
       );
@@ -1072,8 +1075,9 @@ class _PlantChatScreenState extends State<PlantChatScreen>
 class ChatMessage {
   final String text;
   final bool isUser;
+  final List<int>? imageBytes;
 
-  ChatMessage({required this.text, required this.isUser});
+  ChatMessage({required this.text, required this.isUser, this.imageBytes});
 }
 
 class ChatHistory {

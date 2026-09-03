@@ -1,12 +1,15 @@
 import '../model/data_model/care_rule.dart';
 import '../model/data_model/plant_context.dart';
 import '../model/data_model/plant_event.dart';
+import '../model/data_model/plant_location.dart';
 import '../model/data_model/plant_model.dart';
 import '../model/data_model/recovery_models.dart';
 import '../model/data_model/reminder_model.dart';
+import 'care_context_resolver.dart';
 import 'care_logic.dart';
 import 'grow_logic.dart';
 import 'recovery_logic.dart';
+import 'weather_snapshot.dart';
 
 export '../model/data_model/plant_context.dart';
 
@@ -59,6 +62,9 @@ class TodayAction {
   final String? reminderId;
   final String? careRuleId;
   final DateTime? sortTime;
+  final String? secondaryCtaLabel;
+  final String? weatherExplanation;
+  final CareContextState? careContext;
 
   const TodayAction({
     required this.kind,
@@ -75,6 +81,9 @@ class TodayAction {
     this.reminderId,
     this.careRuleId,
     this.sortTime,
+    this.secondaryCtaLabel,
+    this.weatherExplanation,
+    this.careContext,
   });
 
   TodayAction copyWith({bool? dominant}) {
@@ -93,6 +102,9 @@ class TodayAction {
       reminderId: reminderId,
       careRuleId: careRuleId,
       sortTime: sortTime,
+      secondaryCtaLabel: secondaryCtaLabel,
+      weatherExplanation: weatherExplanation,
+      careContext: careContext,
     );
   }
 }
@@ -129,6 +141,9 @@ class TodayPriorityResolver {
     List<TodayMilestoneCandidate> milestones = const [],
     List<GrowDueAction> growActions = const [],
     Iterable<PlantWeatherContext> plantWeatherContexts = const [],
+    List<Plant> plants = const [],
+    Map<String, PlantLocation> locationsById = const {},
+    Map<String, WeatherSnapshot> weatherByLocationId = const {},
   }) {
     final recovery = _recoveryCards(
       now: now,
@@ -141,19 +156,28 @@ class TodayPriorityResolver {
       reminders: reminders,
       careRules: careRules,
       plantNames: plantNames,
+      plants: plants,
+      locationsById: locationsById,
+      weatherByLocationId: weatherByLocationId,
     );
     final milestoneCards = _milestoneCards(milestones);
 
     final ordered = <TodayAction>[];
 
-    if (shouldShowCriticalWeather(
-      weather: weather,
-      plantContexts: plantWeatherContexts,
-    )) {
-      ordered.add(_weatherCard(weather!));
-    }
     ordered.addAll(recovery);
     ordered.addAll(care);
+    final careAlreadyCoversWeather = care.any(
+      (card) =>
+          card.careContext == CareContextState.maybeHandledByRain ||
+          card.careContext == CareContextState.weatherAttention,
+    );
+    if (!careAlreadyCoversWeather &&
+        shouldShowCriticalWeather(
+          weather: weather,
+          plantContexts: plantWeatherContexts,
+        )) {
+      ordered.add(_weatherCard(weather!));
+    }
     ordered.addAll(_growCards(growActions));
     ordered.addAll(milestoneCards);
 
@@ -275,26 +299,54 @@ class TodayPriorityResolver {
     required List<PlantReminder> reminders,
     required List<CareRule> careRules,
     required Map<String, String> plantNames,
+    List<Plant> plants = const [],
+    Map<String, PlantLocation> locationsById = const {},
+    Map<String, WeatherSnapshot> weatherByLocationId = const {},
   }) {
     final cards = <TodayAction>[];
+    final plantsById = <String, Plant>{
+      for (final plant in plants) plant.id: plant,
+    };
 
     final dueRules = careRules.where((r) => CareLogic.isDue(r, now)).toList()
       ..sort((a, b) => a.nextDueAt.compareTo(b.nextDueAt));
     for (final rule in dueRules) {
       final plantName = _plantLabel(plantNames[rule.plantId]);
+      final plant = plantsById[rule.plantId];
+      final location = plant == null ? null : locationsById[plant.locationId];
+      final weather = location == null
+          ? null
+          : weatherByLocationId[location.id];
+      final decision = plant == null
+          ? null
+          : CareContextResolver.evaluate(
+              plant: plant,
+              rule: rule,
+              location: location,
+              weather: weather,
+              now: now,
+            );
       final task = rule.careType.replaceFirst('PlantFollow: ', '');
       cards.add(
         TodayAction(
           kind: TodayActionKind.care,
           rank: careRank,
           id: 'care-rule-${rule.id}',
-          title: '$task — $plantName',
-          subtitle: CareLogic.whyDue(rule, now),
-          ctaLabel: 'Done',
+          title: decision?.todayTitle(
+                plantName: plantName,
+                careType: rule.careType,
+              ) ??
+              '$task — $plantName',
+          subtitle: decision?.todaySubtitle ?? CareLogic.whyDue(rule, now),
+          ctaLabel: decision?.primaryCtaLabel ?? 'Done',
           plantId: rule.plantId,
           reminderId: rule.reminderId,
           careRuleId: rule.id,
           sortTime: rule.nextDueAt,
+          overdue: CareLogic.isOverdue(rule, now),
+          secondaryCtaLabel: decision?.secondaryCtaLabel,
+          weatherExplanation: decision?.explanation,
+          careContext: decision?.state,
         ),
       );
     }

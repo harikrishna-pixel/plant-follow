@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:plantidentifier/model/data_model/plant_model.dart';
 import 'package:plantidentifier/model/data_model/plant_search_result.dart';
 import 'package:plantidentifier/services/gemini_service.dart';
+import 'package:plantidentifier/services/identify_logic.dart';
 import 'package:plantidentifier/services/plant_local.dart';
 import 'package:plantidentifier/services/search_service.dart';
 
@@ -61,9 +62,8 @@ class PlantProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<Plant?> identifyPlant(File image) async {
-    final plant = await GeminiService.identifyPlant(image);
-    return plant;
+  Future<IdentifyAttempt> identifyPlant(File image) async {
+    return GeminiService.identifyPlant(image);
   }
 
   // Check if a plant is already in favorites
@@ -75,14 +75,20 @@ class PlantProvider extends ChangeNotifier {
   }
 
   // Add plant to favorites (returns false if already exists)
-  Future<bool> saveFavorite(Plant plant) async {
+  Future<bool> saveFavorite(
+    Plant plant, {
+    String confirmationSource = 'model',
+  }) async {
     final isDuplicate = isFavorite(plant);
 
     if (isDuplicate) {
       return false;
     }
 
-    await LocalStorageService.saveFavorite(plant);
+    await LocalStorageService.saveFavorite(
+      plant,
+      confirmationSource: confirmationSource,
+    );
     await loadFavorites();
     return true;
   }

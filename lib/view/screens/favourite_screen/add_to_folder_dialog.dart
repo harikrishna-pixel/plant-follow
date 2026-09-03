@@ -228,7 +228,7 @@ class _AddToFolderDialogState extends State<AddToFolderDialog> {
                           ),
                         ),
                         subtitle: Text(
-                          '${folder.plantIds.length} plants',
+                          folder.plantCountLabel,
                           style: GoogleFonts.inter(
                             fontSize: 12,
                             color: Colors.grey[600],

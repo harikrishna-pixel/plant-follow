@@ -5,12 +5,12 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../provider/folder_provider.dart';
 import '../../../provider/plant_provider.dart';
-import '../../../navigation/v1_nav.dart';
+import '../../../model/data_model/plant_model.dart';
+import '../../../widgets/pf_components.dart';
 import '../scan_screen.dart';
+import 'favourite_details.dart';
 import 'favourite_screens.dart';
 import 'folder_detail_screen.dart';
-import 'tasks_tab_wrapper.dart';
-import 'snap_history_tab_wrapper.dart';
 
 class MyGardenScreen extends StatefulWidget {
   const MyGardenScreen({super.key});
@@ -19,65 +19,74 @@ class MyGardenScreen extends StatefulWidget {
   State<MyGardenScreen> createState() => _MyGardenScreenState();
 }
 
-class _MyGardenScreenState extends State<MyGardenScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
+class _MyGardenScreenState extends State<MyGardenScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FDF8),
+      backgroundColor: const Color(0xFFF7F9F5),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
         title: Text(
-          V1Nav.plantsLabel,
+          'My Plants',
           style: GoogleFonts.poppins(
             fontSize: 20,
             fontWeight: FontWeight.w600,
-            color: const Color(0xFF2E7D32),
+            color: const Color(0xFF172019),
           ),
-        ),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: const Color(0xFF2E7D32),
-          unselectedLabelColor: Colors.grey[600],
-          indicatorColor: const Color(0xFF4CAF50),
-          indicatorWeight: 3,
-          labelStyle: GoogleFonts.poppins(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-          unselectedLabelStyle: GoogleFonts.poppins(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-          tabs: const [
-            Tab(text: 'Garden'),
-            Tab(text: 'Tasks'),
-            Tab(text: 'Scan History'),
-          ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          const MyGardenTab(),
-          const TasksTab(),
-          const SnapHistoryTab(),
-        ],
+      body: Consumer2<PlantProvider, FolderProvider>(
+        builder: (context, plants, folders, _) {
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: Text(
+                    'My plants',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF172019),
+                    ),
+                  ),
+                ),
+              ),
+              if (plants.favorites.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                    child: PfEmptyState(
+                      icon: Icons.local_florist_outlined,
+                      title: 'No plants yet',
+                      subtitle: 'Identify a plant to start following it.',
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) {
+                        final plant = plants.favorites[i];
+                        return _PlantFollowTile(plant: plant);
+                      },
+                      childCount: plants.favorites.length,
+                    ),
+                  ),
+                ),
+              const SliverToBoxAdapter(child: SizedBox(height: 8)),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
+                  child: const MyGardenTab(),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -100,10 +109,9 @@ class MyGardenTab extends StatelessWidget {
   }
 
   Widget _buildEmptyState(BuildContext context, FolderProvider provider) {
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
           children: [
             // Group Section
             Row(
@@ -130,8 +138,6 @@ class MyGardenTab extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            _buildAllPlantsEntry(context),
             const SizedBox(height: 16),
             // Container(
             //   padding: const EdgeInsets.all(20),
@@ -258,10 +264,9 @@ class MyGardenTab extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 100), // Extra padding to avoid bottom scan icon
+            const SizedBox(height: 24),
           ],
         ),
-      ),
     );
   }
 
@@ -359,7 +364,6 @@ class MyGardenTab extends StatelessWidget {
   Widget _buildGardenList(BuildContext context, FolderProvider provider) {
     return Column(
       children: [
-        _buildAllPlantsEntry(context),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
@@ -387,8 +391,9 @@ class MyGardenTab extends StatelessWidget {
             ],
           ),
         ),
-        Expanded(
-          child: ListView.builder(
+        ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             itemCount: provider.folders.length,
             itemBuilder: (context, index) {
@@ -454,7 +459,7 @@ class MyGardenTab extends StatelessWidget {
                         ],
                         const SizedBox(height: 8),
                         Text(
-                          '${folder.plantIds.length} plants',
+                          folder.plantCountLabel,
                           style: GoogleFonts.inter(
                             fontSize: 12,
                             color: const Color(0xFF4CAF50),
@@ -468,7 +473,6 @@ class MyGardenTab extends StatelessWidget {
               );
             },
           ),
-        ),
       ],
     );
   }
@@ -757,6 +761,71 @@ class MyGardenTab extends StatelessWidget {
             const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PlantFollowTile extends StatelessWidget {
+  final Plant plant;
+
+  const _PlantFollowTile({required this.plant});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: const Color(0xFF4CAF50).withOpacity(0.1)),
+      ),
+      child: ListTile(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FavoriteDetailScreen(plant: plant),
+            ),
+          );
+        },
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: plant.imagePath != null &&
+                  plant.imageFile != null &&
+                  plant.imageFile!.existsSync()
+              ? Image.file(
+                  plant.imageFile!,
+                  width: 48,
+                  height: 48,
+                  fit: BoxFit.cover,
+                )
+              : Container(
+                  width: 48,
+                  height: 48,
+                  color: const Color(0xFFE8F5E8),
+                  child: const Icon(
+                    Icons.local_florist,
+                    color: Color(0xFF4CAF50),
+                  ),
+                ),
+        ),
+        title: Text(
+          plant.name,
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+        ),
+        subtitle: plant.scientificName.isEmpty
+            ? null
+            : Text(
+                plant.scientificName,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey[600],
+                ),
+              ),
+        trailing: const Icon(Icons.chevron_right),
       ),
     );
   }

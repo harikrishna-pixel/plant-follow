@@ -33,15 +33,24 @@ class CareLogic {
   /// Shared next-due + event pair used by Plant Detail, Today, and CareRuleProvider.
   static ({CareRule rule, PlantEvent event}) completeWithEvent(
     CareRule rule,
-    DateTime now,
-  ) {
+    DateTime now, {
+    Map<String, dynamic>? extraPayload,
+  }) {
     final updated = complete(rule, now);
-    return (rule: updated, event: completionEvent(rule: updated, now: now));
+    return (
+      rule: updated,
+      event: completionEvent(
+        rule: updated,
+        now: now,
+        extraPayload: extraPayload,
+      ),
+    );
   }
 
   static PlantEvent completionEvent({
     required CareRule rule,
     required DateTime now,
+    Map<String, dynamic>? extraPayload,
   }) {
     return PlantEvent(
       id: Plant.generateDurableId(),
@@ -53,6 +62,7 @@ class CareLogic {
         'careType': rule.careType,
         'baseIntervalDays': rule.baseIntervalDays,
         if (rule.reminderId != null) 'reminderId': rule.reminderId,
+        ...?extraPayload,
       },
       source: 'care',
     );

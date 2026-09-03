@@ -89,7 +89,7 @@ class PlantHealthTab extends StatelessWidget {
               );
             },
             child: Text(
-              "Something's wrong",
+              "Something's wrong?",
               style: GoogleFonts.poppins(
                 color: const Color(0xFF2E7D32),
                 fontWeight: FontWeight.w600,

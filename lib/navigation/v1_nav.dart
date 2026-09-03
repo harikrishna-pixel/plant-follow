@@ -3,19 +3,30 @@ class V1Nav {
   static const todayIndex = 0;
   static const plantsIndex = 1;
   static const cameraActionIndex = 2;
-  static const meIndex = 3;
+  static const progressIndex = 3;
+  static const meIndex = 4;
 
   static const todayLabel = 'Today';
   static const plantsLabel = 'Plants';
+  static const cameraLabel = 'Camera';
+  static const progressLabel = 'Progress';
   static const meLabel = 'Me';
 
-  static const primaryLabels = [todayLabel, plantsLabel, meLabel];
+  static const primaryLabels = [
+    todayLabel,
+    plantsLabel,
+    progressLabel,
+    meLabel,
+  ];
 
   static const cameraIsPersistentTab = false;
   static const askMeIsPrimaryDestination = false;
 
   /// Restore Purchase must replace the stack with the tab shell, not HomeScreen.
   static const restorePurchaseUsesTabShell = true;
+
+  /// Lets Today empty-state "View plants" switch tabs without new routing.
+  static void Function(int index)? onSelectTab;
 
   static bool isPrimaryDestination(String label) =>
       primaryLabels.contains(label);

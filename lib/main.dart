@@ -2,8 +2,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:get/get_navigation/src/root/get_material_app.dart';
 import 'package:plantidentifier/provider/folder_provider.dart'
     show FolderProvider;
 import 'package:plantidentifier/provider/plant_provider.dart';
@@ -16,7 +14,7 @@ import 'package:plantidentifier/provider/grow_plan_provider.dart';
 import 'package:plantidentifier/services/plant_local.dart';
 import 'package:plantidentifier/services/notification_service.dart';
 import 'package:plantidentifier/services/phase3_smoke_seed.dart';
-import 'package:plantidentifier/view/screens/home_screen.dart';
+import 'package:plantidentifier/theme/plantfollow_theme.dart';
 import 'package:plantidentifier/view/screens/splash_screen.dart';
 import 'package:plantidentifier/mixpanel/mixpanel.dart';
 import 'package:provider/provider.dart';
@@ -65,14 +63,7 @@ class MyApp extends StatelessWidget {
         builder: (context, child) {
           return GetMaterialApp(
             title: 'PlantFollow',
-            theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: const Color(0xFF388E3C),
-                brightness: Brightness.light,
-              ),
-              useMaterial3: true,
-              fontFamily: 'Roboto',
-            ),
+            theme: PlantFollowTheme.light,
             debugShowCheckedModeBanner: false,
             home: const SplashScreen(),
           );

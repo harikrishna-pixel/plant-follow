@@ -263,7 +263,7 @@ Let's grow together! 💚
             ],
             _DetailCard(
               title: 'Referral Program',
-              description: 'Share your code to unlock free scans',
+              description: 'Share your code with friends',
               icon: Icons.card_giftcard_rounded,
               color: const Color(0xFFFF9800),
               children: [

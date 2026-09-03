@@ -46,8 +46,12 @@ class PlantHistoryProvider extends ChangeNotifier {
     }
   }
 
-  // Add a scanned plant to history
+  // Add a scanned plant to history. Low-confidence / unconfirmed results
+  // must not appear as successful identifications.
   Future<void> addToHistory(Plant plant) async {
+    if (plant.identityConfirmation == IdentityStatus.unconfirmed) {
+      return;
+    }
     final historyItem = PlantHistory.fromPlant(plant);
     
     // Add to beginning of list (most recent first)

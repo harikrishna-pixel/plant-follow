@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../model/data_model/folder_model.dart';
 import '../model/data_model/plant_event.dart';
 import '../model/data_model/plant_model.dart';
+import 'identify_logic.dart';
 import 'plant_record_migration.dart';
 import 'recovery_store.dart';
 import 'location_store.dart';
@@ -98,7 +99,10 @@ class LocalStorageService {
     return box.values.toList();
   }
 
-  static Future<void> saveFavorite(Plant plant) async {
+  static Future<void> saveFavorite(
+    Plant plant, {
+    String confirmationSource = 'model',
+  }) async {
     final box = Hive.box<Plant>(_favoritesBox);
     await box.add(plant);
     await appendPlantEvent(
@@ -107,11 +111,10 @@ class LocalStorageService {
         plantId: plant.id,
         eventType: PlantEventType.identification,
         timestamp: DateTime.now(),
-        payload: {
-          'name': plant.name,
-          'scientificName': plant.scientificName,
-          if (plant.imagePath != null) 'imagePath': plant.imagePath,
-        },
+        payload: IdentifyLogic.identificationEventPayload(
+          plant,
+          confirmationSource: confirmationSource,
+        ),
         source: 'identification',
       ),
     );

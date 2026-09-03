@@ -39,6 +39,11 @@ class PlantFolder {
     return plantIds.any(plant.matchesStoredId);
   }
 
+  String get plantCountLabel {
+    final n = plantIds.length;
+    return n == 1 ? '1 plant' : '$n plants';
+  }
+
   PlantFolder copyWith({
     String? id,
     String? name,

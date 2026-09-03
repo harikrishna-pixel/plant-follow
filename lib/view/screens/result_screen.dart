@@ -12,16 +12,28 @@ import '../../model/data_model/plant_model.dart';
 import '../../provider/plant_provider.dart';
 import '../../provider/plant_history_provider.dart';
 import '../../provider/folder_provider.dart';
-import '../../widgets/banner_widget.dart';
+import '../../navigation/plant_workspace_tabs.dart';
+import '../../services/identification_analytics.dart';
+import '../../services/identification_result.dart';
+import '../../services/identify_logic.dart';
 import 'scan_screen.dart';
 import 'reminder/add_reminder_dialog.dart';
 import 'favourite_screen/folder_detail_screen.dart';
+import 'favourite_screen/plant_care_tab.dart';
+import 'favourite_screen/plant_health_tab.dart';
+import 'favourite_screen/plant_timeline_tab.dart';
 import 'plant_context/plant_context_sheet.dart';
+import 'result_screens/identify_trust_card.dart';
 
 
 class ResultScreen extends StatefulWidget {
   final Plant plant;
-  const ResultScreen({super.key, required this.plant});
+  final IdentificationResult? identification;
+  const ResultScreen({
+    super.key,
+    required this.plant,
+    this.identification,
+  });
 
   @override
   State<ResultScreen> createState() => _ResultScreenState();
@@ -40,11 +52,18 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
   final GlobalKey _shareButtonKey = GlobalKey();
   List<String> _relatedImages = [];
   bool _isLoadingRelatedImages = false;
+  late Plant _plant;
+  late IdentificationResult _trust;
+  String _confirmationSource = 'model';
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _plant = widget.plant;
+    _trust = widget.identification ?? IdentificationResult.fromPlant(widget.plant);
+    _confirmationSource = _trust.confirmationSource ?? 'model';
+    _tabController = TabController(length: PlantWorkspaceTabs.labels.length, vsync: this);
     _tabController.addListener(() {
       setState(() {
         _selectedTabIndex = _tabController.index;
@@ -63,8 +82,8 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
     });
 
     try {
-      final plantName = widget.plant.name;
-      final scientificName = widget.plant.scientificName ?? '';
+      final plantName = _plant.name;
+      final scientificName = _plant.scientificName ?? '';
       
       // Use both common name and scientific name for better results
       final searchQuery = scientificName.isNotEmpty 
@@ -139,12 +158,88 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
     }
   }
 
-  // Save scanned plant to history
+  // Save scanned plant to history. Unconfirmed results are not successful IDs.
   void _saveToHistory() {
+    if (!IdentifyLogic.mayRecordScanHistory(_plant)) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final historyProvider = Provider.of<PlantHistoryProvider>(context, listen: false);
-      historyProvider.addToHistory(widget.plant);
+      historyProvider.addToHistory(_plant);
     });
+  }
+
+  void _retryIdentification() {
+    IdentificationAnalytics.retry();
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const ScanScreen()),
+    );
+  }
+
+  void _selectAlternative(IdentifyCandidate candidate) {
+    IdentificationAnalytics.alternativeSelected();
+    setState(() {
+      _plant = IdentifyLogic.applyCandidate(_plant, candidate);
+      _trust = _trust.withSelectedCandidate(candidate);
+      _confirmationSource = 'user_selected';
+    });
+    if (IdentifyLogic.mayRecordScanHistory(_plant)) {
+      Provider.of<PlantHistoryProvider>(context, listen: false)
+          .addToHistory(_plant);
+    }
+  }
+
+  Future<void> _savePlant(PlantProvider provider) async {
+    if (_saving || !_trust.allowsDirectSave) return;
+    setState(() => _saving = true);
+    final success = await provider.saveFavorite(
+      _plant,
+      confirmationSource: _confirmationSource,
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (success) {
+      IdentificationAnalytics.plantSaved(
+        identityStatus: _plant.identityConfirmation,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 8),
+              Text('Saved!', style: GoogleFonts.poppins(fontSize: 13)),
+            ],
+          ),
+          backgroundColor: const Color(0xFF4CAF50),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      await showPlantContextSheet(
+        context,
+        plant: _plant,
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.info_outline, color: Colors.white),
+              const SizedBox(width: 8),
+              Text('Already saved', style: GoogleFonts.poppins(fontSize: 13)),
+            ],
+          ),
+          backgroundColor: const Color(0xFFFF9800),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+    }
   }
 
   _initTts() async {
@@ -349,7 +444,7 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
       _currentSpokenLine = -1;
     });
 
-    final lines = _composeLines(widget.plant);
+    final lines = _composeLines(_plant);
 
     // Set selected voice properly
     if (_selectedVoice.isNotEmpty && _availableVoices.isNotEmpty) {
@@ -652,9 +747,9 @@ class _ResultScreenState extends State<ResultScreen> with SingleTickerProviderSt
     const appStoreLink = 'https://apps.apple.com/app/id/6752886333';
     
     final shareMessage = '''
-🌿 ${widget.plant.name}
-${widget.plant.scientificName?.isNotEmpty == true ? '🔬 ${widget.plant.scientificName}\n' : ''}
-${widget.plant.description?.isNotEmpty == true ? '${widget.plant.description}\n\n' : ''}
+🌿 ${_plant.name}
+${_plant.scientificName?.isNotEmpty == true ? '🔬 ${_plant.scientificName}\n' : ''}
+${_plant.description?.isNotEmpty == true ? '${_plant.description}\n\n' : ''}
 Shared from PlantFollow
 📱 Download the app: $appStoreLink
 ''';
@@ -770,45 +865,45 @@ Shared from PlantFollow
           infoCard(
             title: "Plant Name",
             icon: Icons.park,
-            child: _buildSpeechLine(context, line: "Plant Name: ${widget.plant.name}",
-                lineIndex: lines.indexWhere((l) => l == "Plant Name: ${widget.plant.name}")),
+            child: _buildSpeechLine(context, line: "Plant Name: ${_plant.name}",
+                lineIndex: lines.indexWhere((l) => l == "Plant Name: ${_plant.name}")),
           ),
-          if ((widget.plant.scientificName ?? '').isNotEmpty)
+          if ((_plant.scientificName ?? '').isNotEmpty)
             infoCard(
               title: "Scientific Name",
               icon: Icons.science,
-              child: _buildSpeechLine(context, line: "Scientific Name: ${widget.plant.scientificName}",
-                  lineIndex: lines.indexWhere((l) => l == "Scientific Name: ${widget.plant.scientificName}"), italic: true),
+              child: _buildSpeechLine(context, line: "Scientific Name: ${_plant.scientificName}",
+                  lineIndex: lines.indexWhere((l) => l == "Scientific Name: ${_plant.scientificName}"), italic: true),
             ),
-          if ((widget.plant.description ?? '').isNotEmpty)
+          if ((_plant.description ?? '').isNotEmpty)
             infoCard(
               title: "Description",
               icon: Icons.article,
-              child: _buildSpeechLine(context, line: "Description: ${widget.plant.description}",
-                  lineIndex: lines.indexWhere((l) => l == "Description: ${widget.plant.description}")),
+              child: _buildSpeechLine(context, line: "Description: ${_plant.description}",
+                  lineIndex: lines.indexWhere((l) => l == "Description: ${_plant.description}")),
             ),
-          if ((widget.plant.taxonomy ?? {}).isNotEmpty)
+          if ((_plant.taxonomy ?? {}).isNotEmpty)
             infoCard(
               title: "Classification",
               icon: Icons.account_tree,
               child: _buildSpeechLine(context,
-                  line: "Classification: Kingdom: ${widget.plant.taxonomy?['kingdom']}, Family: ${widget.plant.taxonomy?['family']}, Genus: ${widget.plant.taxonomy?['genus']}, Species: ${widget.plant.taxonomy?['species']}",
+                  line: "Classification: Kingdom: ${_plant.taxonomy?['kingdom']}, Family: ${_plant.taxonomy?['family']}, Genus: ${_plant.taxonomy?['genus']}, Species: ${_plant.taxonomy?['species']}",
                   lineIndex: lines.indexWhere((l) => l.startsWith("Classification: Kingdom:"))),
             ),
-          if ((widget.plant.nativeRegion ?? '').isNotEmpty)
+          if ((_plant.nativeRegion ?? '').isNotEmpty)
             infoCard(
               title: "Native Region",
               icon: Icons.public,
               iconColor: const Color(0xFF2196F3),
-              child: _buildSpeechLine(context, line: "Native Region: ${widget.plant.nativeRegion}",
-                  lineIndex: lines.indexWhere((l) => l == "Native Region: ${widget.plant.nativeRegion}")),
+              child: _buildSpeechLine(context, line: "Native Region: ${_plant.nativeRegion}",
+                  lineIndex: lines.indexWhere((l) => l == "Native Region: ${_plant.nativeRegion}")),
             ),
         ],
       );
     }
 
     Widget buildCareGrowthTab(List<String> lines) {
-      final hasContent = (widget.plant.growthSeason ?? '').isNotEmpty || (widget.plant.careGuide ?? {}).isNotEmpty;
+      final hasContent = (_plant.growthSeason ?? '').isNotEmpty || (_plant.careGuide ?? {}).isNotEmpty;
       if (!hasContent) return _emptyState(Icons.spa, 'No care information available');
 
       return ListView(
@@ -816,21 +911,21 @@ Shared from PlantFollow
         physics: const BouncingScrollPhysics(),
         primary: false,
         children: [
-          if ((widget.plant.growthSeason ?? '').isNotEmpty)
+          if ((_plant.growthSeason ?? '').isNotEmpty)
             infoCard(
               title: "Growing Season",
               icon: Icons.wb_sunny,
               iconColor: const Color(0xFFFF9800),
-              child: _buildSpeechLine(context, line: "Growing Season: ${widget.plant.growthSeason}",
-                  lineIndex: lines.indexWhere((l) => l == "Growing Season: ${widget.plant.growthSeason}")),
+              child: _buildSpeechLine(context, line: "Growing Season: ${_plant.growthSeason}",
+                  lineIndex: lines.indexWhere((l) => l == "Growing Season: ${_plant.growthSeason}")),
             ),
-          if ((widget.plant.careGuide ?? {}).isNotEmpty)
+          if ((_plant.careGuide ?? {}).isNotEmpty)
             infoCard(
               title: "Care Guide",
               icon: Icons.spa,
               iconColor: const Color(0xFF8BC34A),
               child: _buildSpeechLine(context,
-                  line: "Care Guide: Watering: ${widget.plant.careGuide?['watering']}, Sunlight: ${widget.plant.careGuide?['sunlight']}, Soil: ${widget.plant.careGuide?['soil']}, Fertilization: ${widget.plant.careGuide?['fertilization']}, Pruning: ${widget.plant.careGuide?['pruning']}, Propagation: ${widget.plant.careGuide?['propagation']}",
+                  line: "Care Guide: Watering: ${_plant.careGuide?['watering']}, Sunlight: ${_plant.careGuide?['sunlight']}, Soil: ${_plant.careGuide?['soil']}, Fertilization: ${_plant.careGuide?['fertilization']}, Pruning: ${_plant.careGuide?['pruning']}, Propagation: ${_plant.careGuide?['propagation']}",
                   lineIndex: lines.indexWhere((l) => l.startsWith("Care Guide: Watering:"))),
             ),
         ],
@@ -838,10 +933,10 @@ Shared from PlantFollow
     }
 
     Widget buildHealthSafetyTab(List<String> lines) {
-      final hasContent = (widget.plant.healthScan ?? '').isNotEmpty ||
-          (widget.plant.toxicity ?? '').isNotEmpty ||
-          (widget.plant.commonPests ?? '').isNotEmpty ||
-          (widget.plant.commonDiseases ?? '').isNotEmpty;
+      final hasContent = (_plant.healthScan ?? '').isNotEmpty ||
+          (_plant.toxicity ?? '').isNotEmpty ||
+          (_plant.commonPests ?? '').isNotEmpty ||
+          (_plant.commonDiseases ?? '').isNotEmpty;
       if (!hasContent) return _emptyState(Icons.health_and_safety, 'No health information available');
 
       return ListView(
@@ -849,25 +944,25 @@ Shared from PlantFollow
         physics: const BouncingScrollPhysics(),
         primary: false,
         children: [
-          if ((widget.plant.healthScan ?? '').isNotEmpty)
+          if ((_plant.healthScan ?? '').isNotEmpty)
             infoCard(
               title: "Health Status",
               icon: Icons.health_and_safety,
               iconColor: const Color(0xFF4CAF50),
-              child: _buildSpeechLine(context, line: "Health Status: ${widget.plant.healthScan}",
-                  lineIndex: lines.indexWhere((l) => l == "Health Status: ${widget.plant.healthScan}"),
+              child: _buildSpeechLine(context, line: "Health Status: ${_plant.healthScan}",
+                  lineIndex: lines.indexWhere((l) => l == "Health Status: ${_plant.healthScan}"),
                   container: true, containerColor: const Color(0xFFE8F5E8), textColor: const Color(0xFF2E7D32)),
             ),
-          if ((widget.plant.toxicity ?? '').isNotEmpty)
+          if ((_plant.toxicity ?? '').isNotEmpty)
             infoCard(
               title: "Safety Information",
               icon: Icons.warning_rounded,
               iconColor: const Color(0xFFF44336),
-              child: _buildSpeechLine(context, line: "Toxicity: ${widget.plant.toxicity}",
-                  lineIndex: lines.indexWhere((l) => l == "Toxicity: ${widget.plant.toxicity}"),
+              child: _buildSpeechLine(context, line: "Toxicity: ${_plant.toxicity}",
+                  lineIndex: lines.indexWhere((l) => l == "Toxicity: ${_plant.toxicity}"),
                   container: true, containerColor: const Color(0xFFFFF3E0), textColor: const Color(0xFFE65100)),
             ),
-          if ((widget.plant.commonPests ?? '').isNotEmpty || (widget.plant.commonDiseases ?? '').isNotEmpty)
+          if ((_plant.commonPests ?? '').isNotEmpty || (_plant.commonDiseases ?? '').isNotEmpty)
             infoCard(
               title: "Common Issues",
               icon: Icons.bug_report,
@@ -875,12 +970,12 @@ Shared from PlantFollow
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if ((widget.plant.commonPests ?? '').isNotEmpty)
-                    _buildSpeechLine(context, line: "Common Pests: ${widget.plant.commonPests}",
-                        lineIndex: lines.indexWhere((l) => l == "Common Pests: ${widget.plant.commonPests}")),
-                  if ((widget.plant.commonDiseases ?? '').isNotEmpty)
-                    _buildSpeechLine(context, line: "Common Diseases: ${widget.plant.commonDiseases}",
-                        lineIndex: lines.indexWhere((l) => l == "Common Diseases: ${widget.plant.commonDiseases}")),
+                  if ((_plant.commonPests ?? '').isNotEmpty)
+                    _buildSpeechLine(context, line: "Common Pests: ${_plant.commonPests}",
+                        lineIndex: lines.indexWhere((l) => l == "Common Pests: ${_plant.commonPests}")),
+                  if ((_plant.commonDiseases ?? '').isNotEmpty)
+                    _buildSpeechLine(context, line: "Common Diseases: ${_plant.commonDiseases}",
+                        lineIndex: lines.indexWhere((l) => l == "Common Diseases: ${_plant.commonDiseases}")),
                 ],
               ),
             ),
@@ -889,36 +984,51 @@ Shared from PlantFollow
     }
 
     Widget buildAdditionalInfoTab(List<String> lines) {
-      final hasContent = (widget.plant.usage ?? '').isNotEmpty || (widget.plant.funFact ?? '').isNotEmpty;
-      if (!hasContent) return _emptyState(Icons.info_outline, 'No additional information available');
-
       return ListView(
         padding: const EdgeInsets.fromLTRB(14, 20, 14, 120),
         physics: const BouncingScrollPhysics(),
         primary: false,
         children: [
-          if ((widget.plant.usage ?? '').isNotEmpty)
+          IdentifySafetySummary(
+            safety: _trust.safety,
+            identificationUncertain: _trust.identificationUncertain,
+          ),
+          const SizedBox(height: 12),
+          if ((_plant.healthScan ?? '').isNotEmpty)
+            infoCard(
+              title: "Identification notes",
+              icon: Icons.notes_outlined,
+              iconColor: const Color(0xFF4CAF50),
+              child: _buildSpeechLine(
+                context,
+                line: "Identification notes: ${_plant.healthScan}",
+                lineIndex: lines.indexWhere(
+                  (l) => l == "Identification notes: ${_plant.healthScan}",
+                ),
+              ),
+            ),
+          if ((_plant.usage ?? '').isNotEmpty)
             infoCard(
               title: "Uses",
               icon: Icons.local_pharmacy,
               iconColor: const Color(0xFF9C27B0),
-              child: _buildSpeechLine(context, line: "Uses: ${widget.plant.usage}",
-                  lineIndex: lines.indexWhere((l) => l == "Uses: ${widget.plant.usage}")),
+              child: _buildSpeechLine(context, line: "Uses: ${_plant.usage}",
+                  lineIndex: lines.indexWhere((l) => l == "Uses: ${_plant.usage}")),
             ),
-          if ((widget.plant.funFact ?? '').isNotEmpty)
+          if ((_plant.funFact ?? '').isNotEmpty)
             infoCard(
               title: "Did You Know?",
               icon: Icons.lightbulb_rounded,
               iconColor: const Color(0xFFFFC107),
-              child: _buildSpeechLine(context, line: "Fun Fact: ${widget.plant.funFact}",
-                  lineIndex: lines.indexWhere((l) => l == "Fun Fact: ${widget.plant.funFact}"),
+              child: _buildSpeechLine(context, line: "Fun Fact: ${_plant.funFact}",
+                  lineIndex: lines.indexWhere((l) => l == "Fun Fact: ${_plant.funFact}"),
                   container: true, containerColor: const Color(0xFFFFF8E1), textColor: const Color(0xFFFF8F00)),
             ),
         ],
       );
     }
 
-    List<String> lines = _composeLines(widget.plant);
+    List<String> lines = _composeLines(_plant);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FDF8),
@@ -963,7 +1073,7 @@ Shared from PlantFollow
             headerSliverBuilder: (context, innerBoxIsScrolled) {
               return [
                 SliverToBoxAdapter(
-                  child: const BannerWidget(screenId: 'result'),
+                  child: const SizedBox.shrink(),
                 ),
                 SliverToBoxAdapter(
                   child: AnimatedSwitcher(
@@ -989,10 +1099,10 @@ Shared from PlantFollow
                               children: [
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(12),
-                                  child: (widget.plant.imageFile != null &&
-                                          File(widget.plant.imageFile!.path).existsSync())
+                                  child: (_plant.imageFile != null &&
+                                          File(_plant.imageFile!.path).existsSync())
                                       ? Image.file(
-                                          widget.plant.imageFile!,
+                                          _plant.imageFile!,
                                           width: 80,
                                           height: 80,
                                           fit: BoxFit.cover,
@@ -1013,38 +1123,23 @@ Shared from PlantFollow
                                 ),
                                 const SizedBox(width: 16),
                                 Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        widget.plant.name,
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                          color: const Color(0xFF2E7D32),
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      if ((widget.plant.scientificName ?? '').isNotEmpty) ...[
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          widget.plant.scientificName!,
-                                          style: GoogleFonts.inter(
-                                            fontSize: 13,
-                                            fontStyle: FontStyle.italic,
-                                            color: Colors.grey[600],
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ],
+                                  child: IdentifyTrustCard(
+                                    plant: _plant,
+                                    result: _trust,
+                                    onRetry: _retryIdentification,
+                                    onSelectAlternative: _selectAlternative,
                                   ),
                                 ),
                               ],
                             ),
                           ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: IdentifyTrustExtras(
+                    result: _trust,
+                    onRetry: _retryIdentification,
+                    onSelectAlternative: _selectAlternative,
                   ),
                 ),
                 // Related Images Slider
@@ -1197,12 +1292,23 @@ Shared from PlantFollow
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
                         ),
-                        tabs: const [
-                          Tab(icon: Icon(Icons.info_outline, size: 16), text: 'Basic'),
-                          Tab(icon: Icon(Icons.spa, size: 16), text: 'Care'),
-                          Tab(icon: Icon(Icons.health_and_safety, size: 16), text: 'Health'),
-                          Tab(icon: Icon(Icons.lightbulb_outline, size: 16), text: 'More'),
-                          Tab(icon: Icon(Icons.notifications_active, size: 16), text: 'Task'),
+                        tabs: [
+                          Tab(
+                            icon: const Icon(Icons.spa, size: 16),
+                            text: PlantWorkspaceTabs.care,
+                          ),
+                          Tab(
+                            icon: const Icon(Icons.health_and_safety, size: 16),
+                            text: PlantWorkspaceTabs.health,
+                          ),
+                          Tab(
+                            icon: const Icon(Icons.timeline, size: 16),
+                            text: PlantWorkspaceTabs.timeline,
+                          ),
+                          Tab(
+                            icon: const Icon(Icons.info_outline, size: 16),
+                            text: PlantWorkspaceTabs.about,
+                          ),
                         ],
                       ),
                     ),
@@ -1213,11 +1319,10 @@ Shared from PlantFollow
             body: TabBarView(
               controller: _tabController,
               children: [
-                buildBasicInfoTab(lines),
-                buildCareGrowthTab(lines),
-                buildHealthSafetyTab(lines),
+                PlantCareTab(plant: _plant),
+                PlantHealthTab(plant: _plant),
+                PlantTimelineTab(plantId: _plant.id),
                 buildAdditionalInfoTab(lines),
-                buildReminderTab(),
               ],
             ),
           ),
@@ -1254,125 +1359,133 @@ Shared from PlantFollow
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Row(
-                    children: [
-                      // Save to Favorites
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF4CAF50),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 2,
-                          ),
-                          icon: const Icon(Icons.favorite, color: Colors.white, size: 18),
-                          label: Text(
-                            'Save',
-                            style: GoogleFonts.poppins(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                            ),
-                          ),
-                          onPressed: () async {
-                            final success =
-                                await provider.saveFavorite(widget.plant);
-
-                            if (!mounted) return;
-                            if (success) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Row(
-                                    children: [
-                                      const Icon(Icons.check_circle, color: Colors.white),
-                                      const SizedBox(width: 8),
-                                      Text('Saved!', style: GoogleFonts.poppins(fontSize: 13)),
-                                    ],
-                                  ),
+                    children: _trust.allowsDirectSave
+                        ? [
+                            Expanded(
+                              flex: 2,
+                              child: ElevatedButton.icon(
+                                key: const Key('identify_primary_action'),
+                                style: ElevatedButton.styleFrom(
                                   backgroundColor: const Color(0xFF4CAF50),
-                                  behavior: SnackBarBehavior.floating,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
+                                  elevation: 2,
                                 ),
-                              );
-                              await showPlantContextSheet(
-                                context,
-                                plant: widget.plant,
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Row(
-                                    children: [
-                                      const Icon(Icons.info_outline, color: Colors.white),
-                                      const SizedBox(width: 8),
-                                      Text('Already saved', style: GoogleFonts.poppins(fontSize: 13)),
-                                    ],
+                                icon: const Icon(Icons.favorite, color: Colors.white, size: 18),
+                                label: Text(
+                                  _trust.primaryActionLabel,
+                                  style: GoogleFonts.poppins(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
                                   ),
-                                  backgroundColor: const Color(0xFFFF9800),
-                                  behavior: SnackBarBehavior.floating,
+                                ),
+                                onPressed: _saving ? null : () => _savePlant(provider),
+                              ),
+                            ),
+                            if (_trust.identityStatus == IdentityStatus.likely) ...[
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: OutlinedButton(
+                                  key: const Key('identify_retry'),
+                                  onPressed: _retryIdentification,
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    side: const BorderSide(
+                                      color: Color(0xFF4CAF50),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    IdentifyLogic.retryAction,
+                                    style: GoogleFonts.poppins(
+                                      color: const Color(0xFF2E7D32),
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ] else ...[
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    side: const BorderSide(color: Color(0xFF2196F3), width: 1.5),
+                                  ),
+                                  icon: const Icon(Icons.folder_open, color: Color(0xFF2196F3), size: 18),
+                                  label: Text(
+                                    'Garden',
+                                    style: GoogleFonts.poppins(
+                                      color: const Color(0xFF2196F3),
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  onPressed: () => ResultScreenDialogs.showAddToFolderDialog(context, _plant),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: OutlinedButton.icon(
+                                  key: _shareButtonKey,
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    side: const BorderSide(color: Color(0xFF4CAF50), width: 1.5),
+                                  ),
+                                  icon: const Icon(Icons.share_rounded, color: Color(0xFF4CAF50), size: 18),
+                                  label: Text(
+                                    'Share',
+                                    style: GoogleFonts.poppins(
+                                      color: const Color(0xFF4CAF50),
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  onPressed: () => _sharePlant(context),
+                                ),
+                              ),
+                            ],
+                          ]
+                        : [
+                            Expanded(
+                              child: ElevatedButton(
+                                key: const Key('identify_primary_action'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4CAF50),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
+                                  elevation: 2,
                                 ),
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Add to Garden
-                      Expanded(
-                        flex: 2,
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                                onPressed: _retryIdentification,
+                                child: Text(
+                                  IdentifyLogic.retryAction,
+                                  style: GoogleFonts.poppins(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
                             ),
-                            side: const BorderSide(color: Color(0xFF2196F3), width: 1.5),
-                          ),
-                          icon: const Icon(Icons.folder_open, color: Color(0xFF2196F3), size: 18),
-                          label: Text(
-                            'Garden',
-                            style: GoogleFonts.poppins(
-                              color: const Color(0xFF2196F3),
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                            ),
-                          ),
-                          onPressed: () => ResultScreenDialogs.showAddToFolderDialog(context, widget.plant),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Share
-                      Expanded(
-                        flex: 2,
-                        child: OutlinedButton.icon(
-                          key: _shareButtonKey,
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            side: const BorderSide(color: Color(0xFF4CAF50), width: 1.5),
-                          ),
-                          icon: const Icon(Icons.share_rounded, color: Color(0xFF4CAF50), size: 18),
-                          label: Text(
-                            'Share',
-                            style: GoogleFonts.poppins(
-                              color: const Color(0xFF4CAF50),
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                            ),
-                          ),
-                          onPressed: () => _sharePlant(context),
-                        ),
-                      ),
-                    ],
+                          ],
                   ),
                 ),
               ),
@@ -1475,7 +1588,7 @@ Shared from PlantFollow
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Never forget to water, fertilize, or care for your ${widget.plant.name}',
+                  'Never forget to water, fertilize, or care for your ${_plant.name}',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.inter(
                     fontSize: 14,
@@ -1499,7 +1612,7 @@ Shared from PlantFollow
                   isScrollControlled: true,
                   backgroundColor: Colors.transparent,
                   builder: (context) => AddReminderDialog(
-                    initialPlantName: widget.plant.name,
+                    initialPlantName: _plant.name,
                   ),
                 );
               },

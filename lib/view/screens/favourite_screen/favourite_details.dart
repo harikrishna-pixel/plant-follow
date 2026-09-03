@@ -19,6 +19,9 @@ import '../../../provider/care_rule_provider.dart';
 import '../../../model/data_model/plant_context.dart';
 import '../../../services/recovery_logic.dart';
 import '../../../services/plant_health_presenter.dart';
+import '../../../services/identify_logic.dart';
+import '../../../services/identification_result.dart';
+import '../../../navigation/plant_workspace_tabs.dart';
 import '../diagnosis/plant_diagnosis_screen.dart';
 import '../diagnosis/recovery_checkin_screen.dart';
 import '../plant_context/plant_context_sheet.dart';
@@ -27,6 +30,7 @@ import 'plant_care_tab.dart';
 import 'plant_health_tab.dart';
 import 'plant_timeline_tab.dart';
 import 'plant_grow_card.dart';
+import '../result_screens/identify_trust_card.dart';
 
 class FavoriteDetailScreen extends StatefulWidget {
   final Plant plant;
@@ -44,7 +48,10 @@ class _FavoriteDetailScreenState extends State<FavoriteDetailScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(
+      length: PlantWorkspaceTabs.labels.length,
+      vsync: this,
+    );
   }
 
   @override
@@ -385,19 +392,12 @@ $appStoreLink
                 ),
               ),
             ),
-          if (widget.plant.toxicity.isNotEmpty)
-            infoCard(
-              title: "Safety Information",
-              icon: Icons.warning_rounded,
-              iconColor: const Color(0xFFF44336),
-              child: Text(
-                widget.plant.toxicity,
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  color: const Color(0xFFE65100),
-                ),
-              ),
-            ),
+          IdentifySafetySummary(
+            safety: PlantSafety.fromPlant(widget.plant),
+            identificationUncertain:
+                widget.plant.identityConfirmation != IdentityStatus.confirmed,
+          ),
+          const SizedBox(height: 8),
           if (widget.plant.commonPests.isNotEmpty ||
               widget.plant.commonDiseases.isNotEmpty)
             infoCard(
@@ -545,7 +545,7 @@ $appStoreLink
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            widget.plant.name,
+                            IdentifyLogic.displayName(widget.plant),
                             style: GoogleFonts.poppins(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -565,6 +565,20 @@ $appStoreLink
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                          if (widget.plant.identityConfirmation !=
+                              IdentityStatus.confirmed) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              widget.plant.identityConfirmation ==
+                                      IdentityStatus.likely
+                                  ? 'Likely match'
+                                  : 'Needs another look',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: Colors.grey[700],
+                              ),
                             ),
                           ],
                           const SizedBox(height: 6),
@@ -615,7 +629,7 @@ $appStoreLink
                                 );
                               },
                               child: Text(
-                                "Something's wrong",
+                                "Something's wrong?",
                                 style: GoogleFonts.poppins(
                                   color: const Color(0xFF2E7D32),
                                   fontWeight: FontWeight.w600,
@@ -631,59 +645,34 @@ $appStoreLink
 
               // Horizontal Tab Bar
               Container(
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFF4CAF50).withOpacity(0.05),
-                      const Color(0xFF81C784).withOpacity(0.05),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: const Color(0xFF4CAF50).withOpacity(0.2),
-                    width: 1,
+                margin: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                decoration: const BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: Color(0xFFE3E9E2)),
                   ),
                 ),
                 child: TabBar(
                   controller: _tabController,
                   isScrollable: false,
-                  indicatorSize: TabBarIndicatorSize.tab,
-                  indicator: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF4CAF50), Color(0xFF66BB6A)],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF4CAF50).withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                  indicatorSize: TabBarIndicatorSize.label,
+                  indicator: const UnderlineTabIndicator(
+                    borderSide: BorderSide(color: Color(0xFF1F6F35), width: 2),
                   ),
-                  labelColor: Colors.white,
-                  unselectedLabelColor: const Color(0xFF2E7D32),
+                  labelColor: const Color(0xFF1F6F35),
+                  unselectedLabelColor: const Color(0xFF667068),
                   labelStyle: GoogleFonts.poppins(
-                    fontSize: 11,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
                   unselectedLabelStyle: GoogleFonts.poppins(
-                    fontSize: 11,
+                    fontSize: 13,
                     fontWeight: FontWeight.w500,
                   ),
                   tabs: const [
-                    Tab(icon: Icon(Icons.spa, size: 16), text: 'Care'),
-                    Tab(
-                      icon: Icon(Icons.health_and_safety, size: 16),
-                      text: 'Health',
-                    ),
-                    Tab(icon: Icon(Icons.timeline, size: 16), text: 'Timeline'),
-                    Tab(
-                      icon: Icon(Icons.info_outline, size: 16),
-                      text: 'About',
-                    ),
+                    Tab(text: PlantWorkspaceTabs.care),
+                    Tab(text: PlantWorkspaceTabs.health),
+                    Tab(text: PlantWorkspaceTabs.timeline),
+                    Tab(text: PlantWorkspaceTabs.about),
                   ],
                 ),
               ),
@@ -710,24 +699,10 @@ $appStoreLink
             bottom: 0,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.white, const Color(0xFFF1F8F4)],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF4CAF50).withOpacity(0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, -4),
-                  ),
-                ],
+              decoration: const BoxDecoration(
+                color: Colors.white,
                 border: Border(
-                  top: BorderSide(
-                    color: const Color(0xFF4CAF50).withOpacity(0.1),
-                    width: 1,
-                  ),
+                  top: BorderSide(color: Color(0xFFE3E9E2)),
                 ),
               ),
               child: SafeArea(

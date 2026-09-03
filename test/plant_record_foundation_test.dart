@@ -64,6 +64,35 @@ void main() {
       expect(plant.id, isNotEmpty);
       expect(plant.name, 'Pothos');
     });
+
+    test('fromGemini reads common_name when plant_name_common is absent', () {
+      final plant = Plant.fromGemini({
+        'common_name': 'Snake Plant',
+        'scientific_name': 'Dracaena trifasciata',
+      }, '/tmp/snake.jpg');
+      expect(plant.name, 'Snake Plant');
+      expect(plant.scientificName, 'Dracaena trifasciata');
+    });
+
+    test('fromGemini accepts mixed map/list fields from Identify JSON', () {
+      final plant = Plant.fromGemini({
+        'plant_name_common': 'Monstera',
+        'plant_name_scientific': 'Monstera deliciosa',
+        'description': {'text': 'A tropical climbing plant.'},
+        'taxonomy': 'Plantae, Araceae',
+        'care_guide': 'Water when the top soil is dry.',
+        'health_scan': {'notes': 'Leaves look healthy.'},
+        'common_pests': ['spider mites', 'scale'],
+        'toxicity': {'status': 'toxic', 'summary': 'Toxic to pets'},
+      }, '/tmp/monstera.jpg');
+      expect(plant.name, 'Monstera');
+      expect(plant.description, 'A tropical climbing plant.');
+      expect(plant.taxonomy['summary'], 'Plantae, Araceae');
+      expect(plant.careGuide['summary'], 'Water when the top soil is dry.');
+      expect(plant.healthScan, 'Leaves look healthy.');
+      expect(plant.commonPests, 'spider mites, scale');
+      expect(plant.toxicity, 'Toxic to pets');
+    });
   });
 
   group('Folder plantId remapping', () {

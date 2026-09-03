@@ -4,6 +4,7 @@ import '../model/data_model/care_rule.dart';
 import '../model/data_model/reminder_model.dart';
 import '../services/care_logic.dart';
 import '../services/care_rule_store.dart';
+import '../services/care_context_resolver.dart';
 import '../services/plant_local.dart';
 
 class CareRuleProvider extends ChangeNotifier {
@@ -50,12 +51,27 @@ class CareRuleProvider extends ChangeNotifier {
     return rule;
   }
 
-  Future<CareRule> completeRule(CareRule rule, {DateTime? now}) async {
+  Future<CareRule> completeRule(
+    CareRule rule, {
+    DateTime? now,
+    Map<String, dynamic>? extraPayload,
+  }) async {
     final at = now ?? DateTime.now();
-    final applied = CareLogic.completeWithEvent(rule, at);
+    final applied = CareLogic.completeWithEvent(
+      rule,
+      at,
+      extraPayload: extraPayload,
+    );
     await CareRuleStore.save(applied.rule);
     await LocalStorageService.appendPlantEvent(applied.event);
     await load();
     return applied.rule;
+  }
+
+  Future<CareRule> rejectRainSuggestion(CareRule rule) async {
+    final updated = CareContextResolver.withRainSuggestionRejected(rule);
+    await CareRuleStore.save(updated);
+    await load();
+    return updated;
   }
 }

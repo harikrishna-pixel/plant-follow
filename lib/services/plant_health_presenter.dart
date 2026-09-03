@@ -29,7 +29,7 @@ class PlantHealthView {
   });
 
   static const emptyHeadline = 'No active recovery';
-  static const emptyBody = 'Nothing needs treatment right now.';
+  static const emptyBody = 'This plant has no active recovery plan.';
 }
 
 class PlantHealthPresenter {

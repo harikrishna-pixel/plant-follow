@@ -32,7 +32,11 @@ class AuthService {
     final userCredential = await _auth.signInWithCredential(credential);
     final user = userCredential.user;
     if (user != null) {
-      await WalletService.instance.ensureUserWallet(user);
+      try {
+        await WalletService.instance.ensureUserWallet(user);
+      } catch (e) {
+        debugPrint('Wallet bootstrap after Google sign-in failed: $e');
+      }
     }
     return userCredential;
   }
@@ -159,7 +163,11 @@ class AuthService {
         }
         
         final user = userCredential.user!;
-        await WalletService.instance.ensureUserWallet(user);
+        try {
+          await WalletService.instance.ensureUserWallet(user);
+        } catch (e) {
+          debugPrint('Wallet bootstrap after Apple sign-in failed: $e');
+        }
         return userCredential;
       } on FirebaseAuthException catch (e) {
         debugPrint('Firebase Auth Error during Apple Sign-In: ${e.code} - ${e.message}');

@@ -2,11 +2,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:plantidentifier/model/data_model/user_wallet.dart';
 import 'package:plantidentifier/services/wallet_service.dart';
+import 'package:plantidentifier/view/screens/auth/login_screen.dart';
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
@@ -19,30 +21,40 @@ class _WalletScreenState extends State<WalletScreen> {
   UserWallet? _wallet;
   bool _loading = true;
   String? _error;
+  bool _needsSignIn = false;
 
   @override
   void initState() {
     super.initState();
-    _fetchWallet();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fetchWallet();
+    });
   }
 
   Future<void> _fetchWallet({bool forceServer = false}) async {
     setState(() {
       _loading = true;
       _error = null;
+      _needsSignIn = false;
     });
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    var user = FirebaseAuth.instance.currentUser;
+    user ??= await FirebaseAuth.instance
+        .authStateChanges()
+        .first
+        .timeout(const Duration(seconds: 5), onTimeout: () => null);
+    if (user == null || user.isAnonymous) {
       setState(() {
         _wallet = null;
         _loading = false;
+        _needsSignIn = true;
         _error = 'Please sign in to view your wallet.';
       });
       return;
     }
 
     try {
+      await user.getIdToken();
       final wallet = forceServer
           ? await WalletService.instance.forceRefreshWallet(user.uid)
           : await WalletService.instance.ensureUserWallet(user);
@@ -50,16 +62,24 @@ class _WalletScreenState extends State<WalletScreen> {
       setState(() {
         _wallet = wallet;
         _loading = false;
+        _error = null;
+        _needsSignIn = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _wallet = null;
         _loading = false;
+        _needsSignIn = false;
         _error = 'Unable to load wallet. Pull to refresh or try again later.';
       });
       debugPrint('Failed to load wallet: $e');
     }
+  }
+
+  Future<void> _openSignIn() async {
+    await Get.to(() => const LoginScreen());
+    if (!mounted) return;
+    await _fetchWallet();
   }
 
   int _coinsFromScans(int scans) => scans * 100;
@@ -96,7 +116,11 @@ class _WalletScreenState extends State<WalletScreen> {
     }
 
     if (_error != null) {
-      return _ErrorState(message: _error!, onRetry: _fetchWallet);
+      return _ErrorState(
+        message: _error!,
+        onRetry: _needsSignIn ? _openSignIn : () => _fetchWallet(),
+        actionLabel: _needsSignIn ? 'Sign in' : 'Retry',
+      );
     }
 
     final wallet = _wallet;
@@ -104,7 +128,7 @@ class _WalletScreenState extends State<WalletScreen> {
     if (wallet == null) {
       return _ErrorState(
         message: 'Wallet not available. Pull to refresh.',
-        onRetry: _fetchWallet,
+        onRetry: () => _fetchWallet(),
       );
     }
 
@@ -785,7 +809,7 @@ class _ShareProgressCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final coinsNeeded = 100 - shareCoins;
     final sharesNeeded = (coinsNeeded / 20).ceil();
-    final progress = shareCoins / 100.0;
+    final progress = (shareCoins / 100.0).clamp(0.0, 1.0);
     final remainingSharesForCoins = UserWallet.maxCoinEarningSharesPerDay - coinEarningSharesToday;
 
     return Container(
@@ -922,10 +946,12 @@ class _ErrorState extends StatelessWidget {
   const _ErrorState({
     required this.message,
     required this.onRetry,
+    this.actionLabel = 'Retry',
   });
 
   final String message;
-  final Future<void> Function({bool forceServer}) onRetry;
+  final Future<void> Function() onRetry;
+  final String actionLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -948,7 +974,7 @@ class _ErrorState extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: () => onRetry(forceServer: true),
+              onPressed: () => onRetry(),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF4CAF50),
                 shape: RoundedRectangleBorder(
@@ -956,7 +982,7 @@ class _ErrorState extends StatelessWidget {
                 ),
               ),
               child: Text(
-                'Retry',
+                actionLabel,
                 style: GoogleFonts.poppins(
                   fontWeight: FontWeight.w600,
                   color: Colors.white,

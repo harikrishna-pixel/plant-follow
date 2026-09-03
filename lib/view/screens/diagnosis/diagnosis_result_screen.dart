@@ -85,11 +85,22 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> {
         );
         await context.read<PlantProvider>().saveFavorite(plant);
       }
-      diagnosis ??= await recovery.persistDiagnosisFromGemini(
+      diagnosis ??= await recovery.tryPersistDiagnosisFromGemini(
         geminiJson: widget.diagnosisData,
         plant: plant,
         photoPath: widget.imageFile.path,
       );
+      if (diagnosis == null) {
+        if (!mounted) return;
+        setState(() => _starting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("We couldn't start recovery from this photo."),
+            backgroundColor: Color(0xFF5D6D57),
+          ),
+        );
+        return;
+      }
       treatment ??= recovery.draftTreatment(
         geminiJson: widget.diagnosisData,
         diagnosis: diagnosis,
@@ -108,9 +119,9 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> {
         _starting = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(recovery.checkBackSentence(opened)),
-          backgroundColor: const Color(0xFF2E7D32),
+        const SnackBar(
+          content: Text('Recovery plan started.'),
+          backgroundColor: Color(0xFF2E7D32),
         ),
       );
     } catch (_) {

@@ -11,8 +11,13 @@ class CareCompletion {
     required CareRuleProvider careRules,
     required ReminderProvider reminders,
     DateTime? now,
+    Map<String, dynamic>? extraPayload,
   }) async {
-    final updated = await careRules.completeRule(rule, now: now);
+    final updated = await careRules.completeRule(
+      rule,
+      now: now,
+      extraPayload: extraPayload,
+    );
     final reminderId = updated.reminderId;
     if (reminderId != null && reminderId.isNotEmpty) {
       await reminders.rescheduleReminder(reminderId, updated.nextDueAt);

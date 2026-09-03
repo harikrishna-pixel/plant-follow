@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../provider/reminder_provider.dart';
 import '../../../model/data_model/reminder_model.dart';
-import '../../../widgets/banner_widget.dart';
 import 'add_reminder_dialog.dart';
 
 class PlantReminderScreen extends StatefulWidget {
@@ -85,7 +84,7 @@ class _PlantReminderScreenState extends State<PlantReminderScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FDF8),
+      backgroundColor: const Color(0xFFF7F9F5),
       appBar: AppBar(
         title: Text(
           'Plant Reminders',
@@ -118,9 +117,6 @@ class _PlantReminderScreenState extends State<PlantReminderScreen>
         builder: (context, provider, child) {
           return Column(
             children: [
-              // Banner Widget
-              const BannerWidget(screenId: 'reminder'),
-              // TabBarView
               Expanded(
                 child: TabBarView(
                   controller: _tabController,

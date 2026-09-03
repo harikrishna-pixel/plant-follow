@@ -284,7 +284,7 @@ Keep the response concise but informative.
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: const Color(0xFFF7F9F5),
       appBar: AppBar(
         flexibleSpace: Container(
           decoration: const BoxDecoration(

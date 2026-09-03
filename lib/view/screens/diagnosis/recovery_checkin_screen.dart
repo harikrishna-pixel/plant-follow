@@ -85,7 +85,7 @@ class _RecoveryCheckInScreenState extends State<RecoveryCheckInScreen> {
     final original = widget.recoveryCase.originalPhotoPath;
     final isDay3 = widget.stage == CheckInStage.day3;
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FDF8),
+      backgroundColor: const Color(0xFFF7F9F5),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -97,8 +97,9 @@ class _RecoveryCheckInScreenState extends State<RecoveryCheckInScreen> {
           ),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: SafeArea(
+        child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         children: [
           Text(
             'How is ${widget.plant.name} looking?',
@@ -110,7 +111,7 @@ class _RecoveryCheckInScreenState extends State<RecoveryCheckInScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Your judgment leads. Take a new photo and compare it with the first one.',
+            'Compare it with the first photo.',
             style: GoogleFonts.inter(color: Colors.grey[700]),
           ),
           const SizedBox(height: 16),
@@ -165,23 +166,11 @@ class _RecoveryCheckInScreenState extends State<RecoveryCheckInScreen> {
             ),
           SizedBox(
             height: 52,
-            child: ElevatedButton(
+            child: FilledButton(
               onPressed: _saving || _newPhotoPath == null || _assessment == null
                   ? null
                   : _submit,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2E7D32),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: Text(
-                _saving ? 'Saving…' : 'Save check-in',
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              child: Text(_saving ? 'Saving…' : 'Save Check-in'),
             ),
           ),
           TextButton(
@@ -206,6 +195,7 @@ class _RecoveryCheckInScreenState extends State<RecoveryCheckInScreen> {
               ),
             ),
         ],
+        ),
       ),
     );
   }

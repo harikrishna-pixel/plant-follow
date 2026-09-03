@@ -1,6 +1,7 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
-// Hand-maintained Hive adapter. Fields 14–18 are additive and optional
-// on read so existing 14-field / 15-field / 17-field records continue to load.
+// Hand-maintained Hive adapter. Fields 14–21 are additive and optional
+// on read so existing 14-field / 15-field / 17-field / 19-field / 21-field
+// records continue to load.
 
 part of 'plant_model.dart';
 
@@ -44,13 +45,18 @@ class PlantAdapter extends TypeAdapter<Plant> {
       cropId: fields[18] is String && (fields[18] as String).isNotEmpty
           ? fields[18] as String
           : null,
+      speciesConfidence: fields[19] is String ? fields[19] as String : '',
+      alternativeNames: fields[20] is List
+          ? (fields[20] as List).map((e) => e.toString()).toList()
+          : const <String>[],
+      identityStatus: fields[21] is String ? fields[21] as String : '',
     );
   }
 
   @override
   void write(BinaryWriter writer, Plant obj) {
     writer
-      ..writeByte(19)
+      ..writeByte(22)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
@@ -88,7 +94,13 @@ class PlantAdapter extends TypeAdapter<Plant> {
       ..writeByte(17)
       ..write(obj.isHarvestable)
       ..writeByte(18)
-      ..write(obj.cropId);
+      ..write(obj.cropId)
+      ..writeByte(19)
+      ..write(obj.speciesConfidence)
+      ..writeByte(20)
+      ..write(obj.alternativeNames)
+      ..writeByte(21)
+      ..write(obj.identityStatus);
   }
 
   @override

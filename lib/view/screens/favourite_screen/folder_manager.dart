@@ -342,7 +342,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
                         ],
                         const SizedBox(height: 8),
                         Text(
-                          '${folder.plantIds.length} plants',
+                          folder.plantCountLabel,
                           style: GoogleFonts.inter(
                             fontSize: 12,
                             color: const Color(0xFF4CAF50),

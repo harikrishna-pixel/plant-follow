@@ -1,7 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:plantidentifier/view/screens/search_plants/plant_detail_serach_screen.dart';
-import 'dart:convert';
 
 import '../../../model/data_model/plant_search_result.dart';
 import '../../../services/gemini_service.dart';
@@ -56,7 +58,9 @@ class _SearchScreensState extends State<SearchScreens> with SingleTickerProvider
     });
 
     try {
-      final result = await _searchPlants(query.trim());
+      final result = await _searchPlants(query.trim()).timeout(
+        const Duration(seconds: 95),
+      );
       
       if (!mounted) return;
 
@@ -201,11 +205,11 @@ Example response:
         ),
         centerTitle: true,
         title: Text(
-          'Search',
+          'Search Plants',
           style: GoogleFonts.poppins(
             fontSize: 20,
             fontWeight: FontWeight.w600,
-            color: const Color(0xFF1B5E20),
+            color: const Color(0xFF172019),
           ),
         ),
       ),
@@ -364,7 +368,7 @@ Example response:
             const SizedBox(height: 32),
             // Loading text
             Text(
-              'Discovering Plants',
+              'Discovering plants',
               style: GoogleFonts.poppins(
                 fontSize: 22,
                 fontWeight: FontWeight.w600,
@@ -374,7 +378,7 @@ Example response:
             const SizedBox(height: 12),
             // Subtitle
             Text(
-              'Searching for plants...',
+              'Searching for plants…',
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 fontSize: 14,

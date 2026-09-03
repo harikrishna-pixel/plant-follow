@@ -3,6 +3,30 @@ import '../model/data_model/recovery_models.dart';
 /// Maps Gemini JSON (new recovery schema or legacy diagnosis JSON)
 /// into persistent PlantFollow diagnosis + treatment drafts.
 class DiagnosisMapper {
+  static bool canPersist(Map<String, dynamic> json) {
+    if (json.isEmpty) return false;
+    if (json['error'] != null) return false;
+    if (json['primary_issue'] is Map) return true;
+    if (json['issues'] is List && (json['issues'] as List).isNotEmpty) {
+      return true;
+    }
+    final noticed = _string(json['what_we_noticed']);
+    return noticed != null && noticed.isNotEmpty;
+  }
+
+  static PlantDiagnosis? tryDiagnosisFromGemini({
+    required Map<String, dynamic> json,
+    required String plantId,
+    required String photoPath,
+  }) {
+    if (!canPersist(json)) return null;
+    return diagnosisFromGemini(
+      json: json,
+      plantId: plantId,
+      photoPath: photoPath,
+    );
+  }
+
   static PlantDiagnosis diagnosisFromGemini({
     required Map<String, dynamic> json,
     required String plantId,

@@ -22,6 +22,7 @@ import 'package:provider/provider.dart';
 
 import 'package:http/http.dart' as http;
 import 'package:plantidentifier/model/data_model/plant_model.dart';
+import 'package:plantidentifier/model/data_model/plant_location.dart';
 import 'package:plantidentifier/model/data_model/recovery_models.dart';
 import 'package:plantidentifier/provider/plant_provider.dart';
 import 'package:plantidentifier/provider/recovery_provider.dart';
@@ -30,8 +31,12 @@ import 'package:plantidentifier/provider/care_rule_provider.dart';
 import 'package:plantidentifier/provider/location_provider.dart';
 import 'package:plantidentifier/provider/grow_plan_provider.dart';
 import 'package:plantidentifier/services/care_completion.dart';
+import 'package:plantidentifier/services/care_context_resolver.dart';
+import 'package:plantidentifier/services/care_weather_analytics.dart';
 import 'package:plantidentifier/services/grow_logic.dart';
+import 'package:plantidentifier/services/location_weather_cache.dart';
 import 'package:plantidentifier/services/today_priority.dart';
+import 'package:plantidentifier/services/weather_snapshot.dart';
 import 'package:plantidentifier/view/screens/diagnosis/recovery_checkin_screen.dart';
 import 'package:plantidentifier/view/screens/today/today_feed.dart';
 import 'privacy_and_terms/faq.dart';
@@ -58,12 +63,15 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _locationPermissionChecked = false;
   DateTime? _lastUserRefresh;
   bool _isOpeningPaywall = false;
+  late final LocationWeatherLookup _locationWeatherLookup;
+  bool _prefetchingWeather = false;
 
   @override
   void initState() {
     super.initState();
     // Track Dashboard Screen view
     MixpanelService.trackDashboardScreen();
+    _locationWeatherLookup = LocationWeatherLookup(_weatherService);
     _checkSubscriptionStatus();
     // Don't load weather immediately - wait for referral dialog to complete
     _checkFirstTime();
@@ -1006,6 +1014,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required PlantProvider plants,
     required CareRuleProvider careRules,
     required GrowPlanProvider growPlans,
+    required LocationProvider locations,
   }) {
     final plantNames = <String, String>{
       for (final plant in plants.favorites) plant.id: plant.name,
@@ -1028,6 +1037,17 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {
       milestones = const [];
     }
+    final locationsById = <String, PlantLocation>{
+      for (final location in locations.locations) location.id: location,
+    };
+    final weatherByLocationId = <String, WeatherSnapshot>{};
+    for (final plant in plants.favorites) {
+      final locationId = plant.locationId;
+      if (locationId == null || locationId.isEmpty) continue;
+      final cached = LocationWeatherCache.instance.peek(locationId);
+      if (cached != null) weatherByLocationId[locationId] = cached;
+    }
+    _prefetchLocationWeather(plants.favorites, locations);
     return TodayPriorityResolver.resolve(
       now: DateTime.now(),
       cases: recovery.cases,
@@ -1049,7 +1069,41 @@ class _HomeScreenState extends State<HomeScreen> {
         harvests: growPlans.harvests,
       ),
       plantWeatherContexts: plants.favorites.map((plant) => plant.placement),
+      plants: plants.favorites,
+      locationsById: locationsById,
+      weatherByLocationId: weatherByLocationId,
     );
+  }
+
+  void _prefetchLocationWeather(
+    List<Plant> plants,
+    LocationProvider locations,
+  ) {
+    if (_prefetchingWeather) return;
+    final unique = <String, PlantLocation>{};
+    for (final plant in plants) {
+      final location = locations.forPlant(plant);
+      if (location == null) continue;
+      if (LocationWeatherCache.instance.peek(location.id) != null) continue;
+      unique[location.id] = location;
+    }
+    if (unique.isEmpty) return;
+    _prefetchingWeather = true;
+    Future.wait(
+      unique.values.map(
+        (location) => LocationWeatherCache.instance.getOrFetch(
+          location: location,
+          loader: _locationWeatherLookup.forLocation,
+        ),
+      ),
+    ).then((results) {
+      if (results.every((item) => item == null)) {
+        CareWeatherAnalytics.contextUnavailable();
+      }
+      if (mounted) setState(() {});
+    }).whenComplete(() {
+      _prefetchingWeather = false;
+    });
   }
 
   Future<void> _onTodayAction(
@@ -1086,10 +1140,30 @@ class _HomeScreenState extends State<HomeScreen> {
         if (action.careRuleId != null) {
           final rule = careRules.byId(action.careRuleId);
           if (rule != null) {
+            Map<String, dynamic>? extraPayload;
+            if (action.careContext == CareContextState.maybeHandledByRain) {
+              final plant = _plantById(plants, action.plantId);
+              final locations = context.read<LocationProvider>();
+              final location =
+                  plant == null ? null : locations.forPlant(plant);
+              final weather = location == null
+                  ? null
+                  : LocationWeatherCache.instance.peek(location.id);
+              extraPayload = CareContextResolver.rainConfirmedPayload(
+                location: location,
+                weather: weather,
+              );
+              if (plant != null) {
+                CareWeatherAnalytics.rainConfirmed(
+                  placement: plant.placement,
+                );
+              }
+            }
             await CareCompletion.complete(
               rule: rule,
               careRules: careRules,
               reminders: reminders,
+              extraPayload: extraPayload,
             );
             return;
           }
@@ -1108,6 +1182,22 @@ class _HomeScreenState extends State<HomeScreen> {
           await Get.to(() => FavoriteDetailScreen(plant: plant));
         }
         return;
+    }
+  }
+
+  Future<void> _onTodaySecondaryAction(
+    TodayAction action, {
+    required CareRuleProvider careRules,
+    required PlantProvider plants,
+  }) async {
+    if (action.kind != TodayActionKind.care) return;
+    if (action.careContext != CareContextState.maybeHandledByRain) return;
+    final rule = careRules.byId(action.careRuleId);
+    if (rule == null) return;
+    await careRules.rejectRainSuggestion(rule);
+    final plant = _plantById(plants, action.plantId);
+    if (plant != null) {
+      CareWeatherAnalytics.rainRejected(placement: plant.placement);
     }
   }
 
@@ -1130,7 +1220,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       extendBody: true,
-      backgroundColor: const Color(0xFFF8FFFE),
+      backgroundColor: const Color(0xFFF7F9F5),
       appBar: AppBar(
         title: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1149,11 +1239,12 @@ class _HomeScreenState extends State<HomeScreen> {
             SizedBox(width: 6.w),
             Flexible(
               child: Text(
-                '$greeting,\n$friendlyName 👋',
-                style: GoogleFonts.dmSans(
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF1B5E20),
-                  fontSize: 18.sp,
+                '$greeting,\n$friendlyName',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF172019),
+                  fontSize: 16,
+                  height: 1.25,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1226,6 +1317,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: const Color(0xFF2E7D32),
                           ),
                         ),
+                        SizedBox(width: 4.w),
+                        Text(
+                          'Near you',
+                          style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFF667068),
+                          ),
+                        ),
                       ],
                     )
                   : Icon(Icons.cloud_off, size: 18.sp, color: Colors.grey),
@@ -1258,32 +1358,22 @@ class _HomeScreenState extends State<HomeScreen> {
                       final screenWidth = MediaQuery.of(context).size.width;
                       final isTablet = screenWidth > 600;
 
-                      return ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF6B35),
-                          foregroundColor: Colors.white,
+                      return OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF172019),
+                          side: const BorderSide(color: Color(0xFFE3E9E2)),
+                          backgroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              isTablet ? 24 : 20.r,
-                            ),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          elevation: 2,
+                          elevation: 0,
                           padding: EdgeInsets.symmetric(
-                            horizontal: isTablet ? 18 : 14.w,
-                            vertical: isTablet ? 10 : 8.h,
+                            horizontal: isTablet ? 16 : 12,
+                            vertical: isTablet ? 8 : 6,
                           ),
                           minimumSize: Size(
-                            isTablet ? 80 : 60.w,
-                            isTablet ? 40 : 32.h,
-                          ),
-                        ),
-                        icon: Icon(Icons.star, size: isTablet ? 20 : 16.sp),
-                        label: Text(
-                          'Pro',
-                          style: GoogleFonts.inter(
-                            fontSize: isTablet ? 16 : 13.sp,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5,
+                            isTablet ? 64 : 52,
+                            isTablet ? 36 : 32,
                           ),
                         ),
                         onPressed: () async {
@@ -1306,6 +1396,14 @@ class _HomeScreenState extends State<HomeScreen> {
                             }
                           }
                         },
+                        child: Text(
+                          'Pro',
+                          style: GoogleFonts.poppins(
+                            fontSize: isTablet ? 14 : 12,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF667068),
+                          ),
+                        ),
                       );
                     },
                   ),
@@ -1323,9 +1421,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(
                     'Today',
                     style: GoogleFonts.poppins(
-                      fontSize: 26.sp,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF1B5E20),
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF172019),
                     ),
                   ),
                   SizedBox(height: 6.h),
@@ -1338,12 +1436,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   SizedBox(height: 20.h),
-                  Consumer5<
+                  Consumer6<
                     RecoveryProvider,
                     ReminderProvider,
                     PlantProvider,
                     CareRuleProvider,
-                    GrowPlanProvider
+                    GrowPlanProvider,
+                    LocationProvider
                   >(
                     builder:
                         (
@@ -1353,6 +1452,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           plants,
                           careRules,
                           growPlans,
+                          locations,
                           _,
                         ) {
                           final result = _resolveToday(
@@ -1361,6 +1461,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             plants: plants,
                             careRules: careRules,
                             growPlans: growPlans,
+                            locations: locations,
                           );
                           return TodayFeed(
                             actions: result.cards,
@@ -1370,6 +1471,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               reminders: reminders,
                               plants: plants,
                               careRules: careRules,
+                            ),
+                            onSecondaryAction: (action) =>
+                                _onTodaySecondaryAction(
+                              action,
+                              careRules: careRules,
+                              plants: plants,
                             ),
                           );
                         },
@@ -1466,7 +1573,7 @@ $appStoreLink
             String message;
             if (!welcomeBonusClaimed) {
               // Welcome bonus granted
-              message = "🎉 Welcome bonus! You've unlocked 3 free scans!";
+              message = "Welcome bonus unlocked. Thanks for sharing.";
             } else {
               // Regular share reward
               final shareCoins = wallet.shareCoins;
@@ -1484,7 +1591,7 @@ $appStoreLink
 
                 if (shareCoins >= 100) {
                   message =
-                      "🎉 +1 scan unlocked! You earned 100 coins from sharing!";
+                      "Reward unlocked from sharing.";
                 } else {
                   message =
                       "🎁 +20 coins earned! ($shareCoins/100 coins) $remainingSharesForCoins share${remainingSharesForCoins > 1 ? 's' : ''} left today to earn coins!";
@@ -1720,8 +1827,8 @@ $appStoreLink
                     ).createShader(bounds),
                     child: Text(
                       _hasShared
-                          ? 'You Got Your Gifts\nof 3 Scans!'
-                          : 'Share and Unlock\nYour 3 Free Scans!',
+                          ? 'Thanks for sharing PlantFollow'
+                          : 'Share PlantFollow\nwith a friend',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.poppins(
                         fontSize: 22.sp,
@@ -1748,7 +1855,7 @@ $appStoreLink
                     child: Text(
                       _hasShared
                           ? '🌿 Start identifying your favorite plants'
-                          : '🎁 Share with friends to unlock your free scans',
+                          : 'Share PlantFollow with someone who loves plants',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
                         fontSize: 12.5.sp,

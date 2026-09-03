@@ -50,11 +50,29 @@ class RecoveryProvider extends ChangeNotifier {
     return null;
   }
 
+  Future<PlantDiagnosis?> tryPersistDiagnosisFromGemini({
+    required Map<String, dynamic> geminiJson,
+    required Plant plant,
+    required String photoPath,
+  }) async {
+    if (!DiagnosisMapper.canPersist(geminiJson)) {
+      return null;
+    }
+    return persistDiagnosisFromGemini(
+      geminiJson: geminiJson,
+      plant: plant,
+      photoPath: photoPath,
+    );
+  }
+
   Future<PlantDiagnosis> persistDiagnosisFromGemini({
     required Map<String, dynamic> geminiJson,
     required Plant plant,
     required String photoPath,
   }) async {
+    if (!DiagnosisMapper.canPersist(geminiJson)) {
+      throw StateError('Invalid diagnosis payload cannot be persisted');
+    }
     final diagnosis = DiagnosisMapper.diagnosisFromGemini(
       json: geminiJson,
       plantId: plant.id,

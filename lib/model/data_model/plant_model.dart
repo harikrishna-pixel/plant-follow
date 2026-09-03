@@ -8,6 +8,87 @@ import 'plant_context.dart';
 
 part 'plant_g.dart';
 
+enum SpeciesConfidence { high, medium, low, unknown }
+
+/// How confirmed the saved identity is. Independent of model confidence
+/// so a user-selected alternative can be confirmed without faking a score.
+enum IdentityStatus { confirmed, likely, unconfirmed }
+
+class IdentityStatusCodec {
+  static IdentityStatus? tryFromWire(dynamic raw) {
+    switch ((raw ?? '').toString().trim().toLowerCase()) {
+      case 'confirmed':
+        return IdentityStatus.confirmed;
+      case 'likely':
+        return IdentityStatus.likely;
+      case 'unconfirmed':
+        return IdentityStatus.unconfirmed;
+      default:
+        return null;
+    }
+  }
+
+  static String wireName(IdentityStatus value) {
+    switch (value) {
+      case IdentityStatus.confirmed:
+        return 'confirmed';
+      case IdentityStatus.likely:
+        return 'likely';
+      case IdentityStatus.unconfirmed:
+        return 'unconfirmed';
+    }
+  }
+
+  /// Empty/legacy records were saved as facts. Unknown confidence on those
+  /// plants must not be rewritten as "likely".
+  static IdentityStatus resolve({
+    required String identityStatus,
+    required SpeciesConfidence confidence,
+  }) {
+    final explicit = tryFromWire(identityStatus);
+    if (explicit != null) return explicit;
+    switch (confidence) {
+      case SpeciesConfidence.high:
+        return IdentityStatus.confirmed;
+      case SpeciesConfidence.medium:
+        return IdentityStatus.likely;
+      case SpeciesConfidence.low:
+        return IdentityStatus.unconfirmed;
+      case SpeciesConfidence.unknown:
+        return IdentityStatus.confirmed;
+    }
+  }
+}
+
+class SpeciesConfidenceCodec {
+  static SpeciesConfidence fromWire(dynamic raw) {
+    final value = (raw ?? '').toString().trim().toLowerCase();
+    switch (value) {
+      case 'high':
+        return SpeciesConfidence.high;
+      case 'medium':
+        return SpeciesConfidence.medium;
+      case 'low':
+        return SpeciesConfidence.low;
+      default:
+        return SpeciesConfidence.unknown;
+    }
+  }
+
+  static String wireName(SpeciesConfidence value) {
+    switch (value) {
+      case SpeciesConfidence.high:
+        return 'high';
+      case SpeciesConfidence.medium:
+        return 'medium';
+      case SpeciesConfidence.low:
+        return 'low';
+      case SpeciesConfidence.unknown:
+        return '';
+    }
+  }
+}
+
 @HiveType(typeId: 0)
 class Plant {
   /// Durable business identifier. Never derived from image path.
@@ -30,6 +111,18 @@ class Plant {
   /// Optional crop profile id (tomato, leafy, generic). Unused when not harvestable.
   @HiveField(18)
   final String? cropId;
+
+  /// Species identification confidence wire name: high / medium / low / empty.
+  @HiveField(19)
+  final String speciesConfidence;
+
+  /// Model-supplied alternatives only. Never fabricated.
+  @HiveField(20)
+  final List<String> alternativeNames;
+
+  /// confirmed / likely / unconfirmed. Empty on legacy plants.
+  @HiveField(21)
+  final String identityStatus;
 
   @HiveField(0)
   final String name;
@@ -80,7 +173,18 @@ class Plant {
     this.locationId,
     this.isHarvestable = false,
     this.cropId,
+    this.speciesConfidence = '',
+    this.alternativeNames = const [],
+    this.identityStatus = '',
   }) : id = (id != null && id.isNotEmpty) ? id : generateDurableId();
+
+  SpeciesConfidence get identificationConfidence =>
+      SpeciesConfidenceCodec.fromWire(speciesConfidence);
+
+  IdentityStatus get identityConfirmation => IdentityStatusCodec.resolve(
+        identityStatus: identityStatus,
+        confidence: identificationConfidence,
+      );
 
   File? get imageFile => imagePath != null ? File(imagePath!) : null;
 
@@ -106,6 +210,15 @@ class Plant {
   bool matchesStoredId(String storedId) =>
       storedId == id || storedId == uniqueId;
 
+  static String? _firstNonEmpty(List<dynamic> values) {
+    for (final value in values) {
+      if (value == null) continue;
+      final text = value.toString().trim();
+      if (text.isNotEmpty) return text;
+    }
+    return null;
+  }
+
   static String generateDurableId() {
     final random = Random.secure();
     final bytes = List<int>.generate(16, (_) => random.nextInt(256));
@@ -121,21 +234,67 @@ class Plant {
 
   factory Plant.fromGemini(Map<String, dynamic> json, String imagePath) {
     return Plant(
-      name: json['plant_name_common'] ?? 'Unknown',
-      scientificName: json['plant_name_scientific'] ?? '',
-      description: json['description'] ?? '',
-      taxonomy: Map<String, dynamic>.from(json['taxonomy'] ?? {}),
-      nativeRegion: json['native_region'] ?? '',
-      growthSeason: json['growth_season'] ?? '',
-      toxicity: json['toxicity'] ?? '',
-      careGuide: Map<String, dynamic>.from(json['care_guide'] ?? {}),
-      healthScan: json['health_scan'] ?? '',
-      commonPests: json['common_pests'] ?? '',
-      commonDiseases: json['common_diseases'] ?? '',
-      usage: json['usage'] ?? '',
-      funFact: json['fun_fact'] ?? '',
+      name: _firstNonEmpty([
+            json['plant_name_common'],
+            json['common_name'],
+            json['plant_name'],
+          ]) ??
+          'Unknown',
+      scientificName: _firstNonEmpty([
+            json['plant_name_scientific'],
+            json['scientific_name'],
+          ]) ??
+          '',
+      description: _asGeminiText(json['description']),
+      taxonomy: _asGeminiMap(json['taxonomy']),
+      nativeRegion: _asGeminiText(json['native_region']),
+      growthSeason: _asGeminiText(json['growth_season']),
+      toxicity: _asGeminiText(json['toxicity']),
+      careGuide: _asGeminiMap(json['care_guide']),
+      healthScan: _asGeminiText(json['health_scan']),
+      commonPests: _asGeminiText(json['common_pests']),
+      commonDiseases: _asGeminiText(json['common_diseases']),
+      usage: _asGeminiText(json['usage']),
+      funFact: _asGeminiText(json['fun_fact']),
       imagePath: imagePath,
     );
+  }
+
+  static String _asGeminiText(dynamic value) {
+    if (value == null) return '';
+    if (value is String) return value;
+    if (value is num || value is bool) return value.toString();
+    if (value is List) {
+      return value
+          .map(_asGeminiText)
+          .where((part) => part.trim().isNotEmpty)
+          .join(', ');
+    }
+    if (value is Map) {
+      for (final key in const [
+        'text',
+        'summary',
+        'description',
+        'notes',
+        'value',
+      ]) {
+        final inner = value[key];
+        if (inner is String && inner.trim().isNotEmpty) return inner;
+      }
+      return value.values
+          .map(_asGeminiText)
+          .where((part) => part.trim().isNotEmpty)
+          .join('. ');
+    }
+    return value.toString();
+  }
+
+  static Map<String, dynamic> _asGeminiMap(dynamic value) {
+    if (value is Map) return Map<String, dynamic>.from(value);
+    if (value is String && value.trim().isNotEmpty) {
+      return {'summary': value.trim()};
+    }
+    return {};
   }
 
   Plant copyWith({
@@ -158,6 +317,9 @@ class Plant {
     String? locationId,
     bool? isHarvestable,
     String? cropId,
+    String? speciesConfidence,
+    List<String>? alternativeNames,
+    String? identityStatus,
   }) {
     return Plant(
       id: id ?? this.id,
@@ -179,6 +341,9 @@ class Plant {
       locationId: locationId ?? this.locationId,
       isHarvestable: isHarvestable ?? this.isHarvestable,
       cropId: cropId ?? this.cropId,
+      speciesConfidence: speciesConfidence ?? this.speciesConfidence,
+      alternativeNames: alternativeNames ?? this.alternativeNames,
+      identityStatus: identityStatus ?? this.identityStatus,
     );
   }
 }

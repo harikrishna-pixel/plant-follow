@@ -483,7 +483,7 @@ class MoreScreen extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6FBF4),
+      backgroundColor: const Color(0xFFF7F9F5),
       appBar: AppBar(
         title: Text(
           V1Nav.meLabel,
@@ -557,7 +557,7 @@ class MoreScreen extends StatelessWidget {
                   _MoreTile(
                     icon: Icons.account_balance_wallet_rounded,
                     title: 'Wallet',
-                    subtitle: 'Check available scans and rewards',
+                    subtitle: 'Rewards and referrals',
                     onTap: () => Get.to(() => const WalletScreen()),
                   ),
                   _MoreTile(

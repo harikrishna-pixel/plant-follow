@@ -1,22 +1,30 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
+import '../../../navigation/v1_nav.dart';
 import '../../../services/today_priority.dart';
+import '../../../theme/plantfollow_colors.dart';
+import '../../../theme/plantfollow_metrics.dart';
+import '../../../theme/plantfollow_typography.dart';
+import '../../../widgets/pf_components.dart';
 
 class TodayFeed extends StatelessWidget {
   final List<TodayAction> actions;
   final ValueChanged<TodayAction> onPrimaryAction;
+  final ValueChanged<TodayAction>? onSecondaryAction;
 
   const TodayFeed({
     super.key,
     required this.actions,
     required this.onPrimaryAction,
+    this.onSecondaryAction,
   });
 
   @override
   Widget build(BuildContext context) {
     if (actions.isEmpty) {
-      return const TodayEmptyState();
+      return TodayEmptyState(
+        onViewPlants: () => V1Nav.onSelectTab?.call(V1Nav.plantsIndex),
+      );
     }
 
     return Column(
@@ -26,8 +34,12 @@ class TodayFeed extends StatelessWidget {
           TodayActionCard(
             action: actions[i],
             onPressed: () => onPrimaryAction(actions[i]),
+            onSecondaryPressed: onSecondaryAction == null
+                ? null
+                : () => onSecondaryAction!(actions[i]),
           ),
-          if (i < actions.length - 1) const SizedBox(height: 12),
+          if (i < actions.length - 1)
+            const SizedBox(height: PlantFollowSpacing.sm),
         ],
       ],
     );
@@ -35,47 +47,18 @@ class TodayFeed extends StatelessWidget {
 }
 
 class TodayEmptyState extends StatelessWidget {
-  const TodayEmptyState({super.key});
+  final VoidCallback? onViewPlants;
+
+  const TodayEmptyState({super.key, this.onViewPlants});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.12)),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.check_circle_outline_rounded,
-            size: 40,
-            color: const Color(0xFF2E7D32).withOpacity(0.7),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            TodayPriorityResult.emptyTitle,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF1B5E20),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            TodayPriorityResult.emptySubtitle,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              fontSize: 14,
-              height: 1.45,
-              color: Colors.grey[600],
-            ),
-          ),
-        ],
-      ),
+    return PfEmptyState(
+      icon: Icons.check_circle_outline_rounded,
+      title: TodayPriorityResult.emptyTitle,
+      subtitle: TodayPriorityResult.emptySubtitle,
+      actionLabel: onViewPlants == null ? null : 'View plants',
+      onAction: onViewPlants,
     );
   }
 }
@@ -83,103 +66,81 @@ class TodayEmptyState extends StatelessWidget {
 class TodayActionCard extends StatelessWidget {
   final TodayAction action;
   final VoidCallback onPressed;
+  final VoidCallback? onSecondaryPressed;
 
   const TodayActionCard({
     super.key,
     required this.action,
     required this.onPressed,
+    this.onSecondaryPressed,
   });
 
   @override
   Widget build(BuildContext context) {
     final dominant = action.dominant;
+    final hasSecondary = (action.secondaryCtaLabel ?? '').isNotEmpty;
+    final accent = action.overdue
+        ? PlantFollowColors.attention
+        : PlantFollowColors.primary;
     return Semantics(
-      button: true,
-      label: '${action.title}. ${action.ctaLabel}',
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            width: double.infinity,
-            padding: EdgeInsets.all(dominant ? 20 : 16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: dominant
-                    ? const Color(0xFF4CAF50).withOpacity(0.28)
-                    : const Color(0xFF4CAF50).withOpacity(0.12),
+      button: !hasSecondary,
+      label: hasSecondary
+          ? '${action.title}. ${action.subtitle}. ${action.ctaLabel}. ${action.secondaryCtaLabel}.'
+          : '${action.title}. ${action.ctaLabel}',
+      child: PfCard(
+        borderColor: accent.withValues(alpha: dominant ? 0.45 : 0.18),
+        padding: const EdgeInsets.all(PlantFollowSpacing.md),
+        onTap: hasSecondary ? null : onPressed,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _kindLabel(action.kind),
+              style: PlantFollowTypography.micro(
+                color: accent,
+                weight: FontWeight.w600,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(dominant ? 0.06 : 0.04),
-                  blurRadius: dominant ? 16 : 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _kindLabel(action.kind),
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.4,
-                    color: const Color(0xFF2E7D32),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  action.title,
-                  style: GoogleFonts.poppins(
-                    fontSize: dominant ? 20 : 16,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1B5E20),
-                    height: 1.25,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  action.subtitle,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    height: 1.4,
-                    color: Colors.grey[700],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: FilledButton(
-                    onPressed: onPressed,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF2E7D32),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 10,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: Text(
-                      action.ctaLabel,
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
+            const SizedBox(height: PlantFollowSpacing.xs),
+            Text(action.title, style: PlantFollowTypography.cardTitle()),
+            const SizedBox(height: 4),
+            Text(action.subtitle, style: PlantFollowTypography.secondary()),
+            const SizedBox(height: PlantFollowSpacing.sm),
+            if (hasSecondary)
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: onSecondaryPressed,
+                      child: Text(action.secondaryCtaLabel!),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
+                  const SizedBox(width: PlantFollowSpacing.xs),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: onPressed,
+                      child: Text(action.ctaLabel),
+                    ),
+                  ),
+                ],
+              )
+            else
+              Row(
+                children: [
+                  Text(
+                    action.ctaLabel,
+                    style: PlantFollowTypography.button(
+                      color: PlantFollowColors.primary,
+                    ),
+                  ),
+                  const Spacer(),
+                  const Icon(
+                    Icons.chevron_right,
+                    color: PlantFollowColors.inactive,
+                  ),
+                ],
+              ),
+          ],
         ),
       ),
     );
@@ -188,15 +149,15 @@ class TodayActionCard extends StatelessWidget {
   static String _kindLabel(TodayActionKind kind) {
     switch (kind) {
       case TodayActionKind.weather:
-        return 'WEATHER';
+        return 'Weather';
       case TodayActionKind.recovery:
-        return 'CHECK-IN';
+        return 'Recovery check-in';
       case TodayActionKind.care:
-        return 'CARE';
+        return 'Care';
       case TodayActionKind.milestone:
-        return 'UPDATE';
+        return 'Update';
       case TodayActionKind.grow:
-        return 'GROW';
+        return 'Grow';
     }
   }
 }

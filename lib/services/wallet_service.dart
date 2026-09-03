@@ -18,6 +18,17 @@ class WalletService {
   /// Ensures the wallet document exists for the authenticated user
   /// and returns the latest snapshot as [UserWallet].
   Future<UserWallet> ensureUserWallet(User user) async {
+    await _ensureAuthToken(user);
+    try {
+      return await _ensureUserWalletOnce(user);
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') rethrow;
+      await _ensureAuthToken(user, forceRefresh: true);
+      return await _ensureUserWalletOnce(user);
+    }
+  }
+
+  Future<UserWallet> _ensureUserWalletOnce(User user) async {
     final docRef = _userDoc(user.uid);
     final snapshot = await docRef.get();
 
@@ -55,6 +66,22 @@ class WalletService {
   }
 
   Future<UserWallet> forceRefreshWallet(String uid) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && user.uid == uid) {
+      await _ensureAuthToken(user);
+    }
+    try {
+      return await _forceRefreshWalletOnce(uid);
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') rethrow;
+      if (user != null && user.uid == uid) {
+        await _ensureAuthToken(user, forceRefresh: true);
+      }
+      return await _forceRefreshWalletOnce(uid);
+    }
+  }
+
+  Future<UserWallet> _forceRefreshWalletOnce(String uid) async {
     final docRef = _userDoc(uid);
     final snapshot = await docRef.get(const GetOptions(source: Source.server));
     if (!snapshot.exists) {
@@ -66,6 +93,10 @@ class WalletService {
       return wallet;
     }
     return UserWallet.fromFirestore(uid, snapshot.data() ?? {});
+  }
+
+  Future<void> _ensureAuthToken(User user, {bool forceRefresh = false}) async {
+    await user.getIdToken(forceRefresh);
   }
 
   Future<void> setAvailableScans(String uid, int availableScans) async {
